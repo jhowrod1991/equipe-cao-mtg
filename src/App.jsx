@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   GoogleAuthProvider, 
-  signInWithRedirect, 
-  getRedirectResult, 
+  signInWithPopup, 
   onAuthStateChanged, 
   signOut 
 } from "firebase/auth";
@@ -32,26 +31,23 @@ export default function App() {
   const [torneio, setTorneio] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Trata o estado de autenticação e retorno do Login Redirect
+  // Observador de Autenticação
   useEffect(() => {
-    // Processa o resultado do redirecionamento no mobile
-    getRedirectResult(auth).catch((error) => {
-      console.error("Erro no retorno do login:", error);
-    });
-
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      setLoading(false);
+      if (!currentUser) {
+        setLoading(false);
+      }
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Busca as partidas em tempo real para o usuário logado
-  // Busca as partidas em tempo real para o usuário logado
+  // Busca partidas no Firestore
   useEffect(() => {
     if (!user) {
       setPartidas([]);
+      setLoading(false);
       return;
     }
 
@@ -68,21 +64,22 @@ export default function App() {
           ...doc.data(),
         }));
         setPartidas(docs);
+        setLoading(false);
       },
       (error) => {
         console.error("Erro ao buscar partidas:", error);
+        setLoading(false);
       }
     );
 
     return () => unsubscribe();
   }, [user]);
 
-  // Função de Login (Otimizada para Mobile)
-  // Função de Login (Otimizada para Mobile e à prova de falhas)
+  // Função de Login via Popup (Funciona em Mobile e Web)
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithRedirect(auth, provider);
+      await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Erro ao iniciar login com Google:", error);
       alert("Erro ao abrir login: " + error.message);
@@ -93,7 +90,6 @@ export default function App() {
   const handleLogout = () => {
     signOut(auth);
   };
-
 
   // Cadastrar Partida
   const handleSubmitMatch = async (e) => {
@@ -125,16 +121,6 @@ export default function App() {
     } catch (error) {
       console.error("Erro ao salvar partida:", error);
       alert("Erro ao salvar partida: " + error.message);
-    }
-  };
-
-      // Limpar formulário
-      setDeckAdversario("");
-      setOponente("");
-      setTorneio("");
-      setIsModalOpen(false);
-    } catch (error) {
-      console.error("Erro ao salvar partida:", error);
     }
   };
 
