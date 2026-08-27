@@ -3,12 +3,13 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSy...", // Cole a sua apiKey real aqui
+  apiKey: "AIzaSyAuId53jwl9DXY6g4rjlwSMmCLDc5aGews",
   authDomain: "database-equipe-cao.firebaseapp.com",
   projectId: "database-equipe-cao",
   storageBucket: "database-equipe-cao.firebasestorage.app",
-  messagingSenderId: "123456789...", // Cole o seu messagingSenderId real aqui
-  appId: "1:123456789...:web:..." // Cole o seu appId real aqui
+  messagingSenderId: "415392201455",
+  appId: "1:415392201455:web:f84d549120d62c2772b91a",
+  measurementId: "G-DPNRR750C5"
 };
 
 const app = initializeApp(firebaseConfig);
