@@ -3,13 +3,12 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
-  // Suas credenciais do Firebase...
-  apiKey: "SUA_API_KEY",
+  apiKey: "AIzaSy...", // Cole a sua apiKey real aqui
   authDomain: "database-equipe-cao.firebaseapp.com",
   projectId: "database-equipe-cao",
-  storageBucket: "database-equipe-cao.appspot.com",
-  messagingSenderId: "SEU_SENDER_ID",
-  appId: "SEU_APP_ID"
+  storageBucket: "database-equipe-cao.firebasestorage.app",
+  messagingSenderId: "123456789...", // Cole o seu messagingSenderId real aqui
+  appId: "1:123456789...:web:..." // Cole o seu appId real aqui
 };
 
 const app = initializeApp(firebaseConfig);
