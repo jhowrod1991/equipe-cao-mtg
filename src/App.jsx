@@ -88,22 +88,38 @@ export default function App() {
   };
 
   // Cadastrar Partida
+  // Cadastrar Partida
   const handleSubmitMatch = async (e) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user) {
+      alert("Você precisa estar autenticado para salvar.");
+      return;
+    }
 
     try {
       await addDoc(collection(db, "partidas"), {
         userId: user.uid,
-        userEmail: user.email,
-        meuDeck,
-        deckAdversario,
-        oponente,
-        placar,
-        resultado,
-        torneio,
+        userEmail: user.email || "",
+        meuDeck: meuDeck || "Mono Red Madness",
+        deckAdversario: deckAdversario || "",
+        oponente: oponente || "",
+        placar: placar || "2-0",
+        resultado: resultado || "Vitória",
+        torneio: torneio || "",
         data: new Date().toISOString().split('T')[0]
       });
+
+      // Limpar formulário e fechar modal
+      setDeckAdversario("");
+      setOponente("");
+      setTorneio("");
+      setIsModalOpen(false);
+      alert("Partida registrada com sucesso!");
+    } catch (error) {
+      console.error("Erro ao salvar partida:", error);
+      alert("Erro ao salvar partida: " + error.message);
+    }
+  };
 
       // Limpar formulário
       setDeckAdversario("");
