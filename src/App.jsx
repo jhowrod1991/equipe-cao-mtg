@@ -1,28 +1,64 @@
 import React, { useState, useEffect } from 'react';
-import { ExternalLink, Trophy, Flame, Plus, Swords, X, Layers, Pencil } from 'lucide-react';
-import { db } from './firebase';
-import { collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc } from 'firebase/firestore';
+import { 
+  GoogleAuthProvider, 
+  signInWithRedirect, 
+  getRedirectResult, 
+  onAuthStateChanged, 
+  signOut 
+} from "firebase/auth";
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  where, 
+  onSnapshot, 
+  deleteDoc, 
+  doc 
+} from "firebase/firestore";
+import { auth, db } from "./firebase";
 
-export default function DeckDashboard() {
-  // Meus Decks cadastrados
-  const [meusDecks, setMeusDecks] = useState([
-    { id: 1, nome: "Mono Red Madness", formato: "Pauper", linkLista: "https://moxfield.com" },
-    { id: 2, nome: "Red Rally", formato: "Pauper", linkLista: "https://moxfield.com" },
-    { id: 3, nome: "Gruul Ramp", formato: "Pauper", linkLista: "https://moxfield.com" },
-  ]);
-
-  // Deck Selecionado no Filtro ("Todos" para visão geral ou o nome do deck)
-  const [deckFiltro, setDeckFiltro] = useState("Todos");
-
-  // Lista de partidas vindas do Firebase
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [partidas, setPartidas] = useState([]);
+  const [selectedDeck, setSelectedDeck] = useState("Geral");
 
-  // Estado para controlar a edição (null se for criação, ou o ID da partida sendo editada)
-  const [editingId, setEditingId] = useState(null);
+  // Form states
+  const [meuDeck, setMeuDeck] = useState("Mono Red Madness");
+  const [deckAdversario, setDeckAdversario] = useState("");
+  const [oponente, setOponente] = useState("");
+  const [placar, setPlacar] = useState("2-0");
+  const [resultado, setResultado] = useState("Vitória");
+  const [torneio, setTorneio] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Escuta as partidas do Firestore em tempo real
+  // Trata o estado de autenticação e retorno do Login Redirect
   useEffect(() => {
-    const q = query(collection(db, "partidas"), orderBy("data", "desc"));
+    // Processa o resultado do redirecionamento no mobile
+    getRedirectResult(auth).catch((error) => {
+      console.error("Erro no retorno do login:", error);
+    });
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Busca as partidas em tempo real para o usuário logado
+  useEffect(() => {
+    if (!user) {
+      setPartidas([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "partidas"),
+      where("userId", "==", user.uid)
+    );
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -32,443 +68,357 @@ export default function DeckDashboard() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
-  // Controle do Modal
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  // Formulário de Partida
-  const [formData, setFormData] = useState({
-    meuDeck: "Mono Red Madness",
-    novoDeckNome: "",
-    adversario: '',
-    deckAdversario: '',
-    vitoriasDeck: 2,
-    derrotasDeck: 0,
-    torneio: 'League MTGO',
-    data: new Date().toISOString().split('T')[0]
-  });
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  // Função de Login (Otimizada para Mobile)
+  const handleGoogleLogin = () => {
+    const provider = new GoogleAuthProvider();
+    signInWithRedirect(auth, provider);
   };
 
-  // Prepara o formulário para criar uma nova partida
-  const handleOpenCreateModal = () => {
-    setEditingId(null);
-    setFormData({
-      meuDeck: meusDecks[0]?.nome || "Mono Red Madness",
-      novoDeckNome: "",
-      adversario: '',
-      deckAdversario: '',
-      vitoriasDeck: 2,
-      derrotasDeck: 0,
-      torneio: 'League MTGO',
-      data: new Date().toISOString().split('T')[0]
-    });
-    setIsModalOpen(true);
+  // Função de Logout
+  const handleLogout = () => {
+    signOut(auth);
   };
 
-  // Prepara o formulário com os dados da partida para edição
-  const handleOpenEditModal = (partida) => {
-    setEditingId(partida.id);
-    
-    // Converte o placar "X-Y" de volta para vitorias e derrotas
-    const [v, d] = partida.placar.split('-').map(Number);
-
-    setFormData({
-      meuDeck: partida.meuDeck,
-      novoDeckNome: "",
-      adversario: partida.adversario,
-      deckAdversario: partida.deckAdversario,
-      vitoriasDeck: isNaN(v) ? 2 : v,
-      derrotasDeck: isNaN(d) ? 0 : d,
-      torneio: partida.torneio || 'League MTGO',
-      data: partida.data || new Date().toISOString().split('T')[0]
-    });
-    setIsModalOpen(true);
-  };
-
-  const handleSubmit = async (e) => {
+  // Cadastrar Partida
+  const handleSubmitMatch = async (e) => {
     e.preventDefault();
-    
-    let deckUsado = formData.meuDeck;
-    
-    if (formData.meuDeck === "NOVO" && formData.novoDeckNome.trim() !== "") {
-      deckUsado = formData.novoDeckNome.trim();
-      const novoDeckObj = {
-        id: Date.now(),
-        nome: deckUsado,
-        formato: "Pauper",
-        linkLista: "https://moxfield.com"
-      };
-      setMeusDecks([...meusDecks, novoDeckObj]);
-    }
-
-    const v = parseInt(formData.vitoriasDeck);
-    const d = parseInt(formData.derrotasDeck);
-    const resultado = v > d ? 'Vitória' : 'Derrota';
-    const placar = `${v}-${d}`;
-
-    const partidaPayload = {
-      meuDeck: deckUsado,
-      adversario: formData.adversario,
-      deckAdversario: formData.deckAdversario,
-      placar: placar,
-      resultado: resultado,
-      torneio: formData.torneio,
-      data: formData.data
-    };
+    if (!user) return;
 
     try {
-      if (editingId) {
-        // Atualiza a partida existente no Firestore
-        const partidaRef = doc(db, "partidas", editingId);
-        await updateDoc(partidaRef, partidaPayload);
-      } else {
-        // Salva uma nova partida no Firestore
-        await addDoc(collection(db, "partidas"), partidaPayload);
-      }
-      
+      await addDoc(collection(db, "partidas"), {
+        userId: user.uid,
+        userEmail: user.email,
+        meuDeck,
+        deckAdversario,
+        oponente,
+        placar,
+        resultado,
+        torneio,
+        data: new Date().toISOString().split('T')[0]
+      });
+
+      // Limpar formulário
+      setDeckAdversario("");
+      setOponente("");
+      setTorneio("");
       setIsModalOpen(false);
-      setEditingId(null);
     } catch (error) {
-      console.error("Erro ao salvar/editar partida no Firebase:", error);
+      console.error("Erro ao salvar partida:", error);
     }
   };
 
-  // Filtragem das Partidas
-  const partidasFiltradas = deckFiltro === "Todos"
-    ? partidas
-    : partidas.filter(p => p.meuDeck === deckFiltro);
+  // Deletar Partida
+  const handleDeleteMatch = async (id) => {
+    try {
+      await deleteDoc(doc(db, "partidas", id));
+    } catch (error) {
+      console.error("Erro ao deletar partida:", error);
+    }
+  };
+
+  // Filtro por Deck
+  const partidasFiltradas = selectedDeck === "Geral" 
+    ? partidas 
+    : partidas.filter(p => p.meuDeck === selectedDeck);
 
   // Cálculos de Estatísticas
-  const vitoriasTotais = partidasFiltradas.filter(p => p.resultado === 'Vitória').length;
-  const totalPartidas = partidasFiltradas.length;
-  const winrateGeral = totalPartidas > 0 ? ((vitoriasTotais / totalPartidas) * 100).toFixed(1) : 0;
+  const totalJogos = partidasFiltradas.length;
+  const vitorias = partidasFiltradas.filter(p => p.resultado === "Vitória").length;
+  const derrotas = totalJogos - vitorias;
+  const winrate = totalJogos > 0 ? ((vitorias / totalJogos) * 100).toFixed(0) : 0;
 
-  const deckInfoAtual = meusDecks.find(d => d.nome === deckFiltro);
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0b0f19] text-white flex items-center justify-center">
+        <p className="text-gray-400 animate-pulse">Carregando Sistema Equipe Cão...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 font-sans">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="min-h-screen bg-[#0b0f19] text-gray-100 p-4 md:p-8 font-sans">
+      {/* Header */}
+      <header className="max-w-6xl mx-auto flex justify-between items-center pb-6 border-b border-gray-800">
+        <div>
+          <h1 className="text-2xl font-bold tracking-wide text-red-500">EQUIPE CÃO MTG</h1>
+          <p className="text-xs text-gray-400">Dashboard de Performance & Matchups</p>
+        </div>
         
-        {/* SELETOR DE DECK NO TOPO */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Layers className="w-5 h-5 text-red-500" />
-            <span className="text-sm font-semibold text-slate-300">Visualizar Estatísticas de:</span>
-          </div>
-          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-            <button
-              onClick={() => setDeckFiltro("Todos")}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                deckFiltro === "Todos"
-                  ? "bg-red-600 text-white shadow-md shadow-red-950/50"
-                  : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white"
-              }`}
+        {user ? (
+          <div className="flex items-center gap-4">
+            <div className="text-right hidden sm:block">
+              <p className="text-sm font-medium">{user.displayName}</p>
+              <p className="text-xs text-gray-500">{user.email}</p>
+            </div>
+            <button 
+              onClick={handleLogout}
+              className="bg-gray-800 hover:bg-gray-700 text-xs px-3 py-2 rounded-lg transition"
             >
-              Geral (Todos os Decks)
+              Sair
             </button>
-            {meusDecks.map((d) => (
+          </div>
+        ) : (
+          <button 
+            onClick={handleGoogleLogin}
+            className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition flex items-center gap-2"
+          >
+            Entrar com Google
+          </button>
+        )}
+      </header>
+
+      {/* Conteúdo Principal */}
+      {user ? (
+        <main className="max-w-6xl mx-auto mt-6 space-y-6">
+          {/* Seletor de Decks */}
+          <div className="bg-[#131b2e] p-4 rounded-xl border border-gray-800 flex flex-wrap items-center gap-3">
+            <span className="text-sm font-medium text-gray-400">Visualizar Estatísticas de:</span>
+            {["Geral", "Mono Red Madness", "Red Rally", "Gruul Ramp"].map((deck) => (
               <button
-                key={d.id}
-                onClick={() => setDeckFiltro(d.nome)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                  deckFiltro === d.nome
-                    ? "bg-red-600 text-white shadow-md shadow-red-950/50"
-                    : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white"
+                key={deck}
+                onClick={() => setSelectedDeck(deck === "Geral" ? "Geral" : deck)}
+                className={`text-xs px-3 py-1.5 rounded-lg transition ${
+                  (selectedDeck === deck || (selectedDeck === "Geral" && deck === "Geral"))
+                    ? "bg-red-600 text-white font-bold"
+                    : "bg-[#1c263d] text-gray-400 hover:bg-gray-700"
                 }`}
               >
-                {d.nome}
+                {deck === "Geral" ? "Geral (Todos os Decks)" : deck}
               </button>
             ))}
           </div>
-        </div>
 
-        {/* CABEÇALHO DO DASHBOARD */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-950 text-red-400 border border-red-800/50 flex items-center gap-1">
-                <Flame className="w-3 h-3" /> {deckInfoAtual ? deckInfoAtual.formato : "Pauper (Geral)"}
+          {/* Cards de Métricas & Botão de Registro */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#131b2e] p-6 rounded-xl border border-gray-800">
+            <div>
+              <span className="text-xs font-semibold uppercase text-red-400 bg-red-950/50 px-2 py-0.5 rounded border border-red-800/50">
+                Pauper ({selectedDeck})
               </span>
+              <h2 className="text-2xl font-bold mt-1">Visão Geral dos Decks</h2>
             </div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-white">
-              {deckFiltro === "Todos" ? "Visão Geral dos Decks" : deckFiltro}
-            </h1>
-            {deckInfoAtual && (
-              <a href={deckInfoAtual.linkLista} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-red-400 hover:text-red-300 hover:underline pt-1">
-                Ver Lista Completa <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            )}
+
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-xl transition flex items-center justify-center gap-2"
+            >
+              + Registrar Partida
+            </button>
           </div>
 
-          <button 
-            onClick={handleOpenCreateModal}
-            className="flex items-center gap-2 bg-red-600 hover:bg-red-500 active:scale-95 text-white font-medium px-4 py-2.5 rounded-xl shadow-lg shadow-red-950/50 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Registrar Partida
-          </button>
-        </div>
+          {/* Grid de Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
+              <p className="text-xs text-gray-400 font-medium">Winrate Geral do Jogador</p>
+              <p className="text-3xl font-extrabold text-white mt-2">{winrate}%</p>
+              <p className="text-xs text-gray-500 mt-1">{vitorias}V - {derrotas}D ({totalJogos} jogos)</p>
+            </div>
 
-        {/* METRICAS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-400">
-                {deckFiltro === "Todos" ? "Winrate Geral do Jogador" : `Winrate (${deckFiltro})`}
-              </p>
-              <h3 className="text-3xl font-bold text-white mt-1">{winrateGeral}%</h3>
-              <p className="text-xs text-slate-500 mt-1">{vitoriasTotais}V - {totalPartidas - vitoriasTotais}D ({totalPartidas} jogos)</p>
+            <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
+              <p className="text-xs text-gray-400 font-medium">Proporção de Vitórias</p>
+              <div className="w-full bg-red-950/60 h-3 rounded-full mt-4 overflow-hidden">
+                <div 
+                  className="bg-red-500 h-full transition-all duration-300"
+                  style={{ width: `${winrate}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mt-2">
+                <span>Vitórias ({vitorias})</span>
+                <span>Derrotas ({derrotas})</span>
+              </div>
             </div>
-            <div className="p-3 bg-slate-800/80 rounded-xl text-amber-400">
-              <Trophy className="w-6 h-6" />
-            </div>
-          </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-400">Melhor Matchup</p>
-              <h3 className="text-2xl font-bold text-emerald-400 mt-1">-</h3>
-              <p className="text-xs text-slate-500 mt-1">Nenhum dado</p>
-            </div>
-            <div className="p-3 bg-slate-800/80 rounded-xl text-emerald-400">
-              <Swords className="w-6 h-6" />
+            <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
+              <p className="text-xs text-gray-400 font-medium">Total de Registros</p>
+              <p className="text-3xl font-extrabold text-white mt-2">{totalJogos}</p>
+              <p className="text-xs text-gray-500 mt-1">Partidas salvas no banco</p>
             </div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-            <p className="text-sm font-medium text-slate-400">Proporção de Vitórias</p>
-            <div className="w-full bg-slate-800 rounded-full h-2.5 mt-4 overflow-hidden flex">
-              <div className="bg-emerald-500 h-2.5" style={{ width: `${winrateGeral}%` }}></div>
-              <div className="bg-red-500 h-2.5" style={{ width: `${100 - winrateGeral}%` }}></div>
+          {/* Tabela de Historico */}
+          <div className="bg-[#131b2e] rounded-xl border border-gray-800 overflow-hidden">
+            <div className="p-4 border-b border-gray-800">
+              <h3 className="font-bold text-sm text-gray-200">Histórico de Matchups</h3>
             </div>
-            <div className="flex justify-between text-xs text-slate-400 mt-2">
-              <span className="text-emerald-400 font-medium">Vitórias ({vitoriasTotais})</span>
-              <span className="text-red-400 font-medium">Derrotas ({totalPartidas - vitoriasTotais})</span>
-            </div>
-          </div>
-        </div>
 
-        {/* TABELA DE MATCHUPS */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-xl overflow-hidden">
-          <div className="p-5 border-b border-slate-800 flex justify-between items-center">
-            <h2 className="font-bold text-lg text-white">Histórico de Matchups</h2>
-            <span className="text-xs text-slate-400 bg-slate-800 px-2.5 py-1 rounded-md">
-              Mostrando: {deckFiltro}
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-300">
-              <thead className="bg-slate-950/50 text-slate-400 uppercase text-[11px] font-semibold tracking-wider">
-                <tr>
-                  <th className="px-6 py-3.5">Resultado</th>
-                  <th className="px-6 py-3.5">Meu Deck</th>
-                  <th className="px-6 py-3.5">Deck Adversário</th>
-                  <th className="px-6 py-3.5">Oponente</th>
-                  <th className="px-6 py-3.5">Placar</th>
-                  <th className="px-6 py-3.5">Torneio</th>
-                  <th className="px-6 py-3.5">Data</th>
-                  <th className="px-6 py-3.5 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {partidasFiltradas.length === 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#1c263d] text-gray-400 uppercase">
                   <tr>
-                    <td colSpan="8" className="text-center py-8 text-slate-500">
-                      Nenhuma partida registrada para este deck.
-                    </td>
+                    <th className="p-3">Resultado</th>
+                    <th className="p-3">Meu Deck</th>
+                    <th className="p-3">Deck Adversário</th>
+                    <th className="p-3">Oponente</th>
+                    <th className="p-3">Placar</th>
+                    <th className="p-3">Torneio</th>
+                    <th className="p-3">Data</th>
+                    <th className="p-3 text-right">Ações</th>
                   </tr>
-                ) : (
-                  partidasFiltradas.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="px-6 py-4">
-                        {item.resultado === 'Vitória' ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60">
-                            Vitória
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-red-950 text-red-400 border border-red-800/60">
-                            Derrota
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 font-semibold text-red-400">{item.meuDeck}</td>
-                      <td className="px-6 py-4 font-semibold text-white">{item.deckAdversario}</td>
-                      <td className="px-6 py-4">{item.adversario}</td>
-                      <td className="px-6 py-4 font-mono font-medium text-slate-200">{item.placar}</td>
-                      <td className="px-6 py-4 text-slate-400">{item.torneio}</td>
-                      <td className="px-6 py-4 text-slate-500">{item.data}</td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => handleOpenEditModal(item)}
-                          className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
-                          title="Editar Partida"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {partidasFiltradas.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" className="text-center py-8 text-gray-500">
+                        Nenhuma partida registrada para este deck.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-      </div>
-
-      {/* MODAL DE CADASTRO OU EDIÇÃO DE PARTIDA */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            
-            <div className="flex justify-between items-center p-5 border-b border-slate-800">
-              <h3 className="text-lg font-bold text-white">
-                {editingId ? "Editar Partida" : "Registrar Nova Partida"}
-              </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
+                  ) : (
+                    partidasFiltradas.map((p) => (
+                      <tr key={p.id} className="hover:bg-[#182238] transition">
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded font-bold ${
+                            p.resultado === "Vitória" 
+                              ? "bg-green-950 text-green-400 border border-green-800/50" 
+                              : "bg-red-950 text-red-400 border border-red-800/50"
+                          }`}>
+                            {p.resultado}
+                          </span>
+                        </td>
+                        <td className="p-3 font-medium text-gray-200">{p.meuDeck}</td>
+                        <td className="p-3 text-gray-300">{p.deckAdversario}</td>
+                        <td className="p-3 text-gray-400">{p.oponente || "-"}</td>
+                        <td className="p-3 font-mono text-gray-300">{p.placar}</td>
+                        <td className="p-3 text-gray-400">{p.torneio || "-"}</td>
+                        <td className="p-3 text-gray-500">{p.data}</td>
+                        <td className="p-3 text-right">
+                          <button 
+                            onClick={() => handleDeleteMatch(p.id)}
+                            className="text-red-400 hover:text-red-300 font-semibold"
+                          >
+                            Excluir
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
+          </div>
+        </main>
+      ) : (
+        <div className="max-w-md mx-auto mt-20 text-center bg-[#131b2e] p-8 rounded-xl border border-gray-800">
+          <h2 className="text-xl font-bold mb-2">Bem-vindo ao Dashboard</h2>
+          <p className="text-sm text-gray-400 mb-6">
+            Faça login com sua conta do Google para visualizar e registrar seus relatórios de partidas do time.
+          </p>
+          <button
+            onClick={handleGoogleLogin}
+            className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-xl transition"
+          >
+            Entrar com Google
+          </button>
+        </div>
+      )}
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
-              
-              {/* Selecionar MEU DECK */}
+      {/* Modal de Registro */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#131b2e] border border-gray-800 w-full max-w-md rounded-xl p-6 relative">
+            <h3 className="text-lg font-bold mb-4">Registrar Nova Partida</h3>
+            
+            <form onSubmit={handleSubmitMatch} className="space-y-4 text-xs">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Qual Deck VOCÊ usou?</label>
+                <label className="block text-gray-400 mb-1">Meu Deck</label>
                 <select
-                  name="meuDeck"
-                  value={formData.meuDeck}
-                  onChange={handleInputChange}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
+                  value={meuDeck}
+                  onChange={(e) => setMeuDeck(e.target.value)}
+                  className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
                 >
-                  {meusDecks.map((d) => (
-                    <option key={d.id} value={d.nome}>{d.nome}</option>
-                  ))}
-                  <option value="NOVO">+ Cadastrar Novo Deck...</option>
+                  <option value="Mono Red Madness">Mono Red Madness</option>
+                  <option value="Red Rally">Red Rally</option>
+                  <option value="Gruul Ramp">Gruul Ramp</option>
                 </select>
               </div>
 
-              {/* Se escolheu cadastrar um novo deck */}
-              {formData.meuDeck === "NOVO" && (
-                <div>
-                  <label className="block text-xs font-medium text-red-400 mb-1">Nome do Seu Novo Deck</label>
-                  <input
-                    type="text"
-                    name="novoDeckNome"
-                    required
-                    placeholder="Ex: Gruul Ramp, Rakdos Burn..."
-                    value={formData.novoDeckNome}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-red-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
-                  />
-                </div>
-              )}
-
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Deck Adversário</label>
+                <label className="block text-gray-400 mb-1">Deck Adversário</label>
                 <input
                   type="text"
-                  name="deckAdversario"
                   required
-                  placeholder="Ex: Mono Blue Terror, Affinity..."
-                  value={formData.deckAdversario}
-                  onChange={handleInputChange}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Nome do Oponente</label>
-                <input
-                  type="text"
-                  name="adversario"
-                  required
-                  placeholder="Ex: Fulano"
-                  value={formData.adversario}
-                  onChange={handleInputChange}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
+                  placeholder="Ex: Jund Wildfire, Kuldotha Burn..."
+                  value={deckAdversario}
+                  onChange={(e) => setDeckAdversario(e.target.value)}
+                  className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Seus Games</label>
+                  <label className="block text-gray-400 mb-1">Nome do Oponente</label>
                   <input
-                    type="number"
-                    name="vitoriasDeck"
-                    min="0"
-                    max="2"
-                    required
-                    value={formData.vitoriasDeck}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
+                    type="text"
+                    placeholder="Ex: Fernando"
+                    value={oponente}
+                    onChange={(e) => setOponente(e.target.value)}
+                    className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Games Oponente</label>
-                  <input
-                    type="number"
-                    name="derrotasDeck"
-                    min="0"
-                    max="2"
-                    required
-                    value={formData.derrotasDeck}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
-                  />
+                  <label className="block text-gray-400 mb-1">Resultado</label>
+                  <select
+                    value={resultado}
+                    onChange={(e) => {
+                      setResultado(e.target.value);
+                      if (e.target.value === "Vitória") setPlacar("2-0");
+                      else setPlacar("0-2");
+                    }}
+                    className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
+                  >
+                    <option value="Vitória">Vitória</option>
+                    <option value="Derrota">Derrota</option>
+                  </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Torneio</label>
+                  <label className="block text-gray-400 mb-1">Placar Exato</label>
+                  <select
+                    value={placar}
+                    onChange={(e) => setPlacar(e.target.value)}
+                    className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
+                  >
+                    <option value="2-0">2-0</option>
+                    <option value="2-1">2-1</option>
+                    <option value="1-2">1-2</option>
+                    <option value="0-2">0-2</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1">Torneio / Evento</label>
                   <input
                     type="text"
-                    name="torneio"
-                    placeholder="Ex: FNM, League"
-                    value={formData.torneio}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Data</label>
-                  <input
-                    type="date"
-                    name="data"
-                    value={formData.data}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
+                    placeholder="Ex: Mensal Agosto"
+                    value={torneio}
+                    onChange={(e) => setTorneio(e.target.value)}
+                    className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+              <div className="flex justify-end gap-3 mt-6 pt-2 border-t border-gray-800">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-sm text-slate-400 hover:text-white"
+                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold px-4 py-2 rounded-lg transition"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium shadow-md shadow-red-950/50"
+                  className="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-lg transition"
                 >
-                  {editingId ? "Atualizar Partida" : "Salvar Partida"}
+                  Salvar Partida
                 </button>
               </div>
             </form>
-
           </div>
         </div>
       )}
-
     </div>
   );
 }
