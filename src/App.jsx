@@ -31,6 +31,12 @@ export default function App() {
   const [torneio, setTorneio] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // Decks padrões + novos decks que já foram salvos no Firestore
+  const decksPadrao = ["Mono Red Madness", "Red Rally", "Gruul Ramp"];
+  const decksCadastrados = Array.from(
+    new Set([...decksPadrao, ...partidas.map((p) => p.meuDeck).filter(Boolean)])
+  );
+
   // Observador de Autenticação
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -187,20 +193,30 @@ export default function App() {
       {/* Conteúdo Principal */}
       {user ? (
         <main className="max-w-6xl mx-auto mt-6 space-y-6">
-          {/* Seletor de Decks */}
+          {/* Seletor de Decks (Agora renderiza botões dinâmicos) */}
           <div className="bg-[#131b2e] p-4 rounded-xl border border-gray-800 flex flex-wrap items-center gap-3">
             <span className="text-sm font-medium text-gray-400">Visualizar Estatísticas de:</span>
-            {["Geral", "Mono Red Madness", "Red Rally", "Gruul Ramp"].map((deck) => (
+            <button
+              onClick={() => setSelectedDeck("Geral")}
+              className={`text-xs px-3 py-1.5 rounded-lg transition ${
+                selectedDeck === "Geral"
+                  ? "bg-red-600 text-white font-bold"
+                  : "bg-[#1c263d] text-gray-400 hover:bg-gray-700"
+              }`}
+            >
+              Geral (Todos os Decks)
+            </button>
+            {decksCadastrados.map((deck) => (
               <button
                 key={deck}
-                onClick={() => setSelectedDeck(deck === "Geral" ? "Geral" : deck)}
+                onClick={() => setSelectedDeck(deck)}
                 className={`text-xs px-3 py-1.5 rounded-lg transition ${
-                  (selectedDeck === deck || (selectedDeck === "Geral" && deck === "Geral"))
+                  selectedDeck === deck
                     ? "bg-red-600 text-white font-bold"
                     : "bg-[#1c263d] text-gray-400 hover:bg-gray-700"
                 }`}
               >
-                {deck === "Geral" ? "Geral (Todos os Decks)" : deck}
+                {deck}
               </button>
             ))}
           </div>
@@ -251,7 +267,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Tabela de Historico */}
+          {/* Tabela de Histórico */}
           <div className="bg-[#131b2e] rounded-xl border border-gray-800 overflow-hidden">
             <div className="p-4 border-b border-gray-800">
               <h3 className="font-bold text-sm text-gray-200">Histórico de Matchups</h3>
@@ -334,17 +350,23 @@ export default function App() {
             <h3 className="text-lg font-bold mb-4">Registrar Nova Partida</h3>
             
             <form onSubmit={handleSubmitMatch} className="space-y-4 text-xs">
+              {/* CAMPO ALTERADO: Agora é um input com sugestões via datalist */}
               <div>
                 <label className="block text-gray-400 mb-1">Meu Deck</label>
-                <select
+                <input
+                  type="text"
+                  required
+                  list="decks-sugeridos"
+                  placeholder="Digite o nome do deck ou escolha um..."
                   value={meuDeck}
                   onChange={(e) => setMeuDeck(e.target.value)}
                   className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
-                >
-                  <option value="Mono Red Madness">Mono Red Madness</option>
-                  <option value="Red Rally">Red Rally</option>
-                  <option value="Gruul Ramp">Gruul Ramp</option>
-                </select>
+                />
+                <datalist id="decks-sugeridos">
+                  {decksCadastrados.map((deck) => (
+                    <option key={deck} value={deck} />
+                  ))}
+                </datalist>
               </div>
 
               <div>
