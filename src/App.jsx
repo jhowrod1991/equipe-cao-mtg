@@ -48,6 +48,7 @@ export default function App() {
   }, []);
 
   // Busca as partidas em tempo real para o usuário logado
+  // Busca as partidas em tempo real para o usuário logado
   useEffect(() => {
     if (!user) {
       setPartidas([]);
@@ -59,13 +60,19 @@ export default function App() {
       where("userId", "==", user.uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setPartidas(docs);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const docs = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setPartidas(docs);
+      },
+      (error) => {
+        console.error("Erro ao buscar partidas:", error);
+      }
+    );
 
     return () => unsubscribe();
   }, [user]);
@@ -87,7 +94,7 @@ export default function App() {
     signOut(auth);
   };
 
-  // Cadastrar Partida
+
   // Cadastrar Partida
   const handleSubmitMatch = async (e) => {
     e.preventDefault();
