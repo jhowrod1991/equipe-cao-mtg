@@ -147,7 +147,10 @@ export default function App() {
   // Cálculos de Estatísticas
   const totalJogos = partidasFiltradas.length;
   const vitorias = partidasFiltradas.filter(p => p.resultado === "Vitória").length;
-  const derrotas = totalJogos - vitorias;
+  const empates = partidasFiltradas.filter(p => p.resultado === "Empate").length;
+  const derrotas = partidasFiltradas.filter(p => p.resultado === "Derrota").length;
+  
+  // Winrate calculado sobre o total de partidas
   const winrate = totalJogos > 0 ? ((vitorias / totalJogos) * 100).toFixed(0) : 0;
 
   if (loading) {
@@ -193,7 +196,7 @@ export default function App() {
       {/* Conteúdo Principal */}
       {user ? (
         <main className="max-w-6xl mx-auto mt-6 space-y-6">
-          {/* Seletor de Decks (Agora renderiza botões dinâmicos) */}
+          {/* Seletor de Decks */}
           <div className="bg-[#131b2e] p-4 rounded-xl border border-gray-800 flex flex-wrap items-center gap-3">
             <span className="text-sm font-medium text-gray-400">Visualizar Estatísticas de:</span>
             <button
@@ -243,20 +246,25 @@ export default function App() {
             <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
               <p className="text-xs text-gray-400 font-medium">Winrate Geral do Jogador</p>
               <p className="text-3xl font-extrabold text-white mt-2">{winrate}%</p>
-              <p className="text-xs text-gray-500 mt-1">{vitorias}V - {derrotas}D ({totalJogos} jogos)</p>
+              <p className="text-xs text-gray-500 mt-1">{vitorias}V - {empates}E - {derrotas}D ({totalJogos} jogos)</p>
             </div>
 
             <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
               <p className="text-xs text-gray-400 font-medium">Proporção de Vitórias</p>
-              <div className="w-full bg-red-950/60 h-3 rounded-full mt-4 overflow-hidden">
+              <div className="w-full bg-red-950/60 h-3 rounded-full mt-4 overflow-hidden flex">
                 <div 
-                  className="bg-red-500 h-full transition-all duration-300"
-                  style={{ width: `${winrate}%` }}
+                  className="bg-green-500 h-full transition-all duration-300"
+                  style={{ width: `${totalJogos > 0 ? (vitorias / totalJogos) * 100 : 0}%` }}
+                />
+                <div 
+                  className="bg-yellow-500 h-full transition-all duration-300"
+                  style={{ width: `${totalJogos > 0 ? (empates / totalJogos) * 100 : 0}%` }}
                 />
               </div>
               <div className="flex justify-between text-xs text-gray-400 mt-2">
-                <span>Vitórias ({vitorias})</span>
-                <span>Derrotas ({derrotas})</span>
+                <span className="text-green-400">Vitórias ({vitorias})</span>
+                <span className="text-yellow-400">Empates ({empates})</span>
+                <span className="text-red-400">Derrotas ({derrotas})</span>
               </div>
             </div>
 
@@ -301,6 +309,8 @@ export default function App() {
                           <span className={`px-2 py-0.5 rounded font-bold ${
                             p.resultado === "Vitória" 
                               ? "bg-green-950 text-green-400 border border-green-800/50" 
+                              : p.resultado === "Empate"
+                              ? "bg-yellow-950 text-yellow-400 border border-yellow-800/50"
                               : "bg-red-950 text-red-400 border border-red-800/50"
                           }`}>
                             {p.resultado}
@@ -350,7 +360,6 @@ export default function App() {
             <h3 className="text-lg font-bold mb-4">Registrar Nova Partida</h3>
             
             <form onSubmit={handleSubmitMatch} className="space-y-4 text-xs">
-              {/* CAMPO ALTERADO: Agora é um input com sugestões via datalist */}
               <div>
                 <label className="block text-gray-400 mb-1">Meu Deck</label>
                 <input
@@ -398,13 +407,16 @@ export default function App() {
                   <select
                     value={resultado}
                     onChange={(e) => {
-                      setResultado(e.target.value);
-                      if (e.target.value === "Vitória") setPlacar("2-0");
+                      const res = e.target.value;
+                      setResultado(res);
+                      if (res === "Vitória") setPlacar("2-0");
+                      else if (res === "Empate") setPlacar("1-1");
                       else setPlacar("0-2");
                     }}
                     className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
                   >
                     <option value="Vitória">Vitória</option>
+                    <option value="Empate">Empate</option>
                     <option value="Derrota">Derrota</option>
                   </select>
                 </div>
@@ -420,6 +432,9 @@ export default function App() {
                   >
                     <option value="2-0">2-0</option>
                     <option value="2-1">2-1</option>
+                    <option value="1-1">1-1</option>
+                    <option value="1-1-1">1-1-1</option>
+                    <option value="0-0">0-0</option>
                     <option value="1-2">1-2</option>
                     <option value="0-2">0-2</option>
                   </select>
