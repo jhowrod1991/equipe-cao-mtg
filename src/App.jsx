@@ -71,9 +71,15 @@ export default function App() {
   }, [user]);
 
   // Função de Login (Otimizada para Mobile)
-  const handleGoogleLogin = () => {
-    const provider = new GoogleAuthProvider();
-    signInWithRedirect(auth, provider);
+  // Função de Login (Otimizada para Mobile e à prova de falhas)
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithRedirect(auth, provider);
+    } catch (error) {
+      console.error("Erro ao iniciar login com Google:", error);
+      alert("Erro ao abrir login: " + error.message);
+    }
   };
 
   // Função de Logout
