@@ -86,14 +86,17 @@ export default function App() {
       return;
     }
 
+    // Pega o nome do Google (user.displayName) ou o prefixo do e-mail
+    const nomeJogador = user.displayName || (user.email ? user.email.split('@')[0] : "Jogador");
+
     try {
       await addDoc(collection(db, "partidas"), {
         userId: user.uid,
-        userName: user.displayName || user.email.split('@')[0],
+        userName: nomeJogador, // <--- Nome do jogador vindo da conta Google
         userEmail: user.email || "",
         formato: formato,
         meuDeck: meuDeck || "Sem Nome",
-        companion: formato === "Duel 500" ? companion : "", // <--- Garante companion só no Duel 500
+        companion: formato === "Duel 500" ? companion : "",
         deckAdversario: deckAdversario || "",
         oponente: oponente || "",
         placar: placar || "2-0",
@@ -116,7 +119,7 @@ export default function App() {
 
   const handleDeleteMatch = async (id) => {
     try {
-      await deleteDoc(doc(doc(db, "partidas", id)));
+      await deleteDoc(doc(db, "partidas", id));
     } catch (error) {
       console.error("Erro ao deletar partida:", error);
     }
@@ -128,27 +131,32 @@ export default function App() {
     return fmt === selectedFormato;
   });
 
+  // Lista dinâmica de jogadores que têm partidas registradas neste formato
   const jogadoresCadastrados = Array.from(new Set(partidasDoFormato.map(p => p.userName).filter(Boolean)));
-  const decksCadastrados = Array.from(new Set(partidasDoFormato.map(p => p.meuDeck).filter(Boolean)));
-
+  
+  // Filtro por Jogador
   const partidasDoJogador = selectedPlayer === "Todos"
     ? partidasDoFormato
     : partidasDoFormato.filter(p => p.userName === selectedPlayer);
 
+  // Lista de Decks disponíveis para filtrar com base no jogador selecionado
+  const decksCadastrados = Array.from(new Set(partidasDoJogador.map(p => p.meuDeck).filter(Boolean)));
+
+  // Filtro por Deck
   const partidasFiltradas = selectedDeck === "Geral"
     ? partidasDoJogador
     : partidasDoJogador.filter(p => p.meuDeck === selectedDeck);
 
-  // --- MÉTRICAS GERAIS ---
+  // --- MÉTRICAS GERAIS (Gerais ou por Jogador) ---
   const totalJogos = partidasFiltradas.length;
   const vitorias = partidasFiltradas.filter(p => p.resultado === "Vitória").length;
   const empates = partidasFiltradas.filter(p => p.resultado === "Empate").length;
   const derrotas = partidasFiltradas.filter(p => p.resultado === "Derrota").length;
   const winrate = totalJogos > 0 ? ((vitorias / totalJogos) * 100).toFixed(0) : 0;
 
-  // --- CONSOLIDAÇÃO DE WINRATE AGREGADA POR DECK ---
+  // --- CONSOLIDAÇÃO DE WINRATE POR DECK (Ajusta conforme jogador selecionado) ---
   const statsPorDeck = decksCadastrados.map(deckName => {
-    const partidasDoDeck = partidasDoFormato.filter(p => p.meuDeck === deckName);
+    const partidasDoDeck = partidasDoJogador.filter(p => p.meuDeck === deckName);
     const total = partidasDoDeck.length;
     const v = partidasDoDeck.filter(p => p.resultado === "Vitória").length;
     const e = partidasDoDeck.filter(p => p.resultado === "Empate").length;
@@ -178,7 +186,7 @@ export default function App() {
         {user ? (
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium">{user.displayName}</p>
+              <p className="text-sm font-medium">{user.displayName || "Jogador"}</p>
               <p className="text-xs text-gray-500">{user.email}</p>
             </div>
             <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 text-xs px-3 py-2 rounded-lg transition">
@@ -221,8 +229,8 @@ export default function App() {
             <span className="text-xs text-gray-400 font-medium">Jogador:</span>
             <select
               value={selectedPlayer}
-              onChange={(e) => setSelectedPlayer(e.target.value)}
-              className="bg-[#1c263d] text-xs border border-gray-700 rounded-lg p-1.5 text-white focus:outline-none"
+              onChange={(e) => { setSelectedPlayer(e.target.value); setSelectedDeck("Geral"); }}
+              className="bg-[#1c263d] text-xs border border-gray-700 rounded-lg p-1.5 text-white focus:outline-none focus:border-red-500"
             >
               <option value="Todos">Toda a Equipe</option>
               {jogadoresCadastrados.map(j => (
@@ -239,7 +247,7 @@ export default function App() {
             <select
               value={selectedDeck}
               onChange={(e) => setSelectedDeck(e.target.value)}
-              className="bg-[#1c263d] text-xs border border-gray-700 rounded-lg p-1.5 text-white focus:outline-none"
+              className="bg-[#1c263d] text-xs border border-gray-700 rounded-lg p-1.5 text-white focus:outline-none focus:border-red-500"
             >
               <option value="Geral">Todos os Decks</option>
               {decksCadastrados.map(d => (
@@ -252,11 +260,16 @@ export default function App() {
         {/* METRICAS E BOTAO REGISTRAR */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#131b2e] p-6 rounded-xl border border-gray-800">
           <div>
-            <span className="text-xs font-semibold uppercase text-red-400 bg-red-950/50 px-2 py-0.5 rounded border border-red-800/50">
-              {selectedFormato} ({selectedPlayer})
-            </span>
-            <h2 className="text-2xl font-bold mt-1">
-              {selectedDeck === "Geral" ? "Visão Geral de Desempenho" : selectedDeck}
+            <div className="flex gap-2 items-center">
+              <span className="text-xs font-semibold uppercase text-red-400 bg-red-950/50 px-2 py-0.5 rounded border border-red-800/50">
+                {selectedFormato}
+              </span>
+              <span className="text-xs font-semibold uppercase text-blue-400 bg-blue-950/50 px-2 py-0.5 rounded border border-blue-800/50">
+                Jogador: {selectedPlayer}
+              </span>
+            </div>
+            <h2 className="text-2xl font-bold mt-2">
+              {selectedDeck === "Geral" ? `Relatório - ${selectedPlayer}` : selectedDeck}
             </h2>
           </div>
 
@@ -273,7 +286,7 @@ export default function App() {
         {/* CARDS DE STATS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
-            <p className="text-xs text-gray-400 font-medium">Winrate Filtrada</p>
+            <p className="text-xs text-gray-400 font-medium">Winrate ({selectedPlayer})</p>
             <p className="text-3xl font-extrabold text-white mt-2">{winrate}%</p>
             <p className="text-xs text-gray-500 mt-1">{vitorias}V - {empates}E - {derrotas}D ({totalJogos} jogos)</p>
           </div>
@@ -298,13 +311,13 @@ export default function App() {
           </div>
         </div>
 
-        {/* TABELA DE WINRATE AGREGADA POR DECK (VISÃO DO TIME) */}
+        {/* TABELA DE WINRATE AGREGADA POR DECK */}
         <div className="bg-[#131b2e] rounded-xl border border-gray-800 overflow-hidden">
           <div className="p-4 border-b border-gray-800 flex justify-between items-center">
             <h3 className="font-bold text-sm text-gray-200">
-              Métricas Gerais do Time por {selectedFormato === "Duel 500" ? "Comandante" : "Deck"} ({selectedFormato})
+              Desempenho por {selectedFormato === "Duel 500" ? "Comandante" : "Deck"} ({selectedPlayer})
             </h3>
-            <span className="text-xs text-gray-500">Dados consolidados de todos os jogadores</span>
+            <span className="text-xs text-gray-500">Métricas consolidadas em {selectedFormato}</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -313,14 +326,14 @@ export default function App() {
                   <th className="p-3">{selectedFormato === "Duel 500" ? "Comandante" : "Deck"}</th>
                   <th className="p-3">Jogos Totais</th>
                   <th className="p-3">Retrospecto (V-E-D)</th>
-                  <th className="p-3">Winrate Agregada</th>
+                  <th className="p-3">Winrate</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {statsPorDeck.length === 0 ? (
                   <tr>
                     <td colSpan="4" className="text-center py-6 text-gray-500">
-                      Nenhum registro em {selectedFormato} ainda.
+                      Nenhum registro encontrado para {selectedPlayer} em {selectedFormato}.
                     </td>
                   </tr>
                 ) : (
@@ -373,7 +386,7 @@ export default function App() {
                 ) : (
                   partidasFiltradas.map((p) => (
                     <tr key={p.id} className="hover:bg-[#182238] transition">
-                      <td className="p-3 font-semibold text-red-400">{p.userName || "Anônimo"}</td>
+                      <td className="p-3 font-semibold text-red-400">{p.userName || "Jogador"}</td>
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded font-bold ${
                           p.resultado === "Vitória" 
@@ -434,7 +447,7 @@ export default function App() {
                     onChange={(e) => {
                       const newFormato = e.target.value;
                       setFormato(newFormato);
-                      if (newFormato !== "Duel 500") setCompanion(""); // Limpa o companion se mudar pra Pauper
+                      if (newFormato !== "Duel 500") setCompanion("");
                     }}
                     className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
                   >
@@ -468,7 +481,7 @@ export default function App() {
               {formato === "Duel 500" && (
                 <div>
                   <label className="block text-purple-400 font-semibold mb-1">
-                    Companion <span className="text-gray-500 font-normal">(Opcional - deixe vazio se não usar)</span>
+                    Companion <span className="text-gray-500 font-normal">(Opcional)</span>
                   </label>
                   <input
                     type="text"
