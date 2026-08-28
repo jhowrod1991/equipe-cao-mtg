@@ -9,7 +9,6 @@ import {
   collection, 
   addDoc, 
   query, 
-  where, 
   onSnapshot, 
   deleteDoc, 
   doc 
@@ -20,10 +19,16 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [partidas, setPartidas] = useState([]);
+
+  // Filtros de Visualização
+  const [selectedFormato, setSelectedFormato] = useState("Pauper");
+  const [selectedPlayer, setSelectedPlayer] = useState("Todos");
   const [selectedDeck, setSelectedDeck] = useState("Geral");
 
-  // Form states
-  const [meuDeck, setMeuDeck] = useState("Mono Red Madness");
+  // Form states (Modal)
+  const [formato, setFormato] = useState("Pauper");
+  const [meuDeck, setMeuDeck] = useState("");
+  const [companion, setCompanion] = useState("");
   const [deckAdversario, setDeckAdversario] = useState("");
   const [oponente, setOponente] = useState("");
   const [placar, setPlacar] = useState("2-0");
@@ -31,36 +36,18 @@ export default function App() {
   const [torneio, setTorneio] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Decks padrões + novos decks que já foram salvos no Firestore
-  const decksPadrao = ["Mono Red Madness", "Red Rally", "Gruul Ramp"];
-  const decksCadastrados = Array.from(
-    new Set([...decksPadrao, ...partidas.map((p) => p.meuDeck).filter(Boolean)])
-  );
-
   // Observador de Autenticação
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) {
-        setLoading(false);
-      }
+      if (!currentUser) setLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
-  // Busca partidas no Firestore
+  // Busca TODAS as partidas do time no Firestore
   useEffect(() => {
-    if (!user) {
-      setPartidas([]);
-      setLoading(false);
-      return;
-    }
-
-    const q = query(
-      collection(db, "partidas"),
-      where("userId", "==", user.uid)
-    );
+    const q = query(collection(db, "partidas"));
 
     const unsubscribe = onSnapshot(
       q,
@@ -79,25 +66,19 @@ export default function App() {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, []);
 
-  // Função de Login via Popup (Funciona em Mobile e Web)
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error) {
-      console.error("Erro ao iniciar login com Google:", error);
       alert("Erro ao abrir login: " + error.message);
     }
   };
 
-  // Função de Logout
-  const handleLogout = () => {
-    signOut(auth);
-  };
+  const handleLogout = () => signOut(auth);
 
-  // Cadastrar Partida
   const handleSubmitMatch = async (e) => {
     e.preventDefault();
     if (!user) {
@@ -108,8 +89,11 @@ export default function App() {
     try {
       await addDoc(collection(db, "partidas"), {
         userId: user.uid,
+        userName: user.displayName || user.email.split('@')[0],
         userEmail: user.email || "",
-        meuDeck: meuDeck || "Mono Red Madness",
+        formato: formato,
+        meuDeck: meuDeck || "Sem Nome",
+        companion: formato === "Duel 500" ? companion : "", // <--- Garante companion só no Duel 500
         deckAdversario: deckAdversario || "",
         oponente: oponente || "",
         placar: placar || "2-0",
@@ -118,40 +102,61 @@ export default function App() {
         data: new Date().toISOString().split('T')[0]
       });
 
-      // Limpar formulário e fechar modal
+      setMeuDeck("");
+      setCompanion("");
       setDeckAdversario("");
       setOponente("");
       setTorneio("");
       setIsModalOpen(false);
       alert("Partida registrada com sucesso!");
     } catch (error) {
-      console.error("Erro ao salvar partida:", error);
       alert("Erro ao salvar partida: " + error.message);
     }
   };
 
-  // Deletar Partida
   const handleDeleteMatch = async (id) => {
     try {
-      await deleteDoc(doc(db, "partidas", id));
+      await deleteDoc(doc(doc(db, "partidas", id)));
     } catch (error) {
       console.error("Erro ao deletar partida:", error);
     }
   };
 
-  // Filtro por Deck
-  const partidasFiltradas = selectedDeck === "Geral" 
-    ? partidas 
-    : partidas.filter(p => p.meuDeck === selectedDeck);
+  // --- FILTRAGEM DOS DADOS ---
+  const partidasDoFormato = partidas.filter(p => {
+    const fmt = (p.formato === "Duel Commander") ? "Duel 500" : (p.formato || "Pauper");
+    return fmt === selectedFormato;
+  });
 
-  // Cálculos de Estatísticas
+  const jogadoresCadastrados = Array.from(new Set(partidasDoFormato.map(p => p.userName).filter(Boolean)));
+  const decksCadastrados = Array.from(new Set(partidasDoFormato.map(p => p.meuDeck).filter(Boolean)));
+
+  const partidasDoJogador = selectedPlayer === "Todos"
+    ? partidasDoFormato
+    : partidasDoFormato.filter(p => p.userName === selectedPlayer);
+
+  const partidasFiltradas = selectedDeck === "Geral"
+    ? partidasDoJogador
+    : partidasDoJogador.filter(p => p.meuDeck === selectedDeck);
+
+  // --- MÉTRICAS GERAIS ---
   const totalJogos = partidasFiltradas.length;
   const vitorias = partidasFiltradas.filter(p => p.resultado === "Vitória").length;
   const empates = partidasFiltradas.filter(p => p.resultado === "Empate").length;
   const derrotas = partidasFiltradas.filter(p => p.resultado === "Derrota").length;
-  
-  // Winrate calculado sobre o total de partidas
   const winrate = totalJogos > 0 ? ((vitorias / totalJogos) * 100).toFixed(0) : 0;
+
+  // --- CONSOLIDAÇÃO DE WINRATE AGREGADA POR DECK ---
+  const statsPorDeck = decksCadastrados.map(deckName => {
+    const partidasDoDeck = partidasDoFormato.filter(p => p.meuDeck === deckName);
+    const total = partidasDoDeck.length;
+    const v = partidasDoDeck.filter(p => p.resultado === "Vitória").length;
+    const e = partidasDoDeck.filter(p => p.resultado === "Empate").length;
+    const d = partidasDoDeck.filter(p => p.resultado === "Derrota").length;
+    const wr = total > 0 ? ((v / total) * 100).toFixed(0) : 0;
+
+    return { deckName, total, v, e, d, wr };
+  }).sort((a, b) => b.total - a.total);
 
   if (loading) {
     return (
@@ -176,214 +181,313 @@ export default function App() {
               <p className="text-sm font-medium">{user.displayName}</p>
               <p className="text-xs text-gray-500">{user.email}</p>
             </div>
-            <button 
-              onClick={handleLogout}
-              className="bg-gray-800 hover:bg-gray-700 text-xs px-3 py-2 rounded-lg transition"
-            >
+            <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 text-xs px-3 py-2 rounded-lg transition">
               Sair
             </button>
           </div>
         ) : (
-          <button 
-            onClick={handleGoogleLogin}
-            className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition flex items-center gap-2"
-          >
+          <button onClick={handleGoogleLogin} className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
             Entrar com Google
           </button>
         )}
       </header>
 
-      {/* Conteúdo Principal */}
-      {user ? (
-        <main className="max-w-6xl mx-auto mt-6 space-y-6">
-          {/* Seletor de Decks */}
-          <div className="bg-[#131b2e] p-4 rounded-xl border border-gray-800 flex flex-wrap items-center gap-3">
-            <span className="text-sm font-medium text-gray-400">Visualizar Estatísticas de:</span>
+      <main className="max-w-6xl mx-auto mt-6 space-y-6">
+        {/* BARRA DE FILTROS GLOBAIS */}
+        <div className="bg-[#131b2e] p-4 rounded-xl border border-gray-800 flex flex-wrap items-center justify-between gap-4">
+          {/* Seletor de Formato */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 font-medium">Formato:</span>
             <button
-              onClick={() => setSelectedDeck("Geral")}
-              className={`text-xs px-3 py-1.5 rounded-lg transition ${
-                selectedDeck === "Geral"
-                  ? "bg-red-600 text-white font-bold"
-                  : "bg-[#1c263d] text-gray-400 hover:bg-gray-700"
+              onClick={() => { setSelectedFormato("Pauper"); setSelectedDeck("Geral"); }}
+              className={`text-xs px-3 py-1.5 rounded-lg transition font-bold ${
+                selectedFormato === "Pauper" ? "bg-red-600 text-white" : "bg-[#1c263d] text-gray-400"
               }`}
             >
-              Geral (Todos os Decks)
+              Pauper
             </button>
-            {decksCadastrados.map((deck) => (
-              <button
-                key={deck}
-                onClick={() => setSelectedDeck(deck)}
-                className={`text-xs px-3 py-1.5 rounded-lg transition ${
-                  selectedDeck === deck
-                    ? "bg-red-600 text-white font-bold"
-                    : "bg-[#1c263d] text-gray-400 hover:bg-gray-700"
-                }`}
-              >
-                {deck}
-              </button>
-            ))}
+            <button
+              onClick={() => { setSelectedFormato("Duel 500"); setSelectedDeck("Geral"); }}
+              className={`text-xs px-3 py-1.5 rounded-lg transition font-bold ${
+                selectedFormato === "Duel 500" ? "bg-red-600 text-white" : "bg-[#1c263d] text-gray-400"
+              }`}
+            >
+              Duel 500
+            </button>
           </div>
 
-          {/* Cards de Métricas & Botão de Registro */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#131b2e] p-6 rounded-xl border border-gray-800">
-            <div>
-              <span className="text-xs font-semibold uppercase text-red-400 bg-red-950/50 px-2 py-0.5 rounded border border-red-800/50">
-                Pauper ({selectedDeck})
-              </span>
-              <h2 className="text-2xl font-bold mt-1">Visão Geral dos Decks</h2>
-            </div>
+          {/* Seletor de Jogador */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 font-medium">Jogador:</span>
+            <select
+              value={selectedPlayer}
+              onChange={(e) => setSelectedPlayer(e.target.value)}
+              className="bg-[#1c263d] text-xs border border-gray-700 rounded-lg p-1.5 text-white focus:outline-none"
+            >
+              <option value="Todos">Toda a Equipe</option>
+              {jogadoresCadastrados.map(j => (
+                <option key={j} value={j}>{j}</option>
+              ))}
+            </select>
+          </div>
 
+          {/* Seletor de Deck */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 font-medium">
+              {selectedFormato === "Duel 500" ? "Comandante:" : "Deck:"}
+            </span>
+            <select
+              value={selectedDeck}
+              onChange={(e) => setSelectedDeck(e.target.value)}
+              className="bg-[#1c263d] text-xs border border-gray-700 rounded-lg p-1.5 text-white focus:outline-none"
+            >
+              <option value="Geral">Todos os Decks</option>
+              {decksCadastrados.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* METRICAS E BOTAO REGISTRAR */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#131b2e] p-6 rounded-xl border border-gray-800">
+          <div>
+            <span className="text-xs font-semibold uppercase text-red-400 bg-red-950/50 px-2 py-0.5 rounded border border-red-800/50">
+              {selectedFormato} ({selectedPlayer})
+            </span>
+            <h2 className="text-2xl font-bold mt-1">
+              {selectedDeck === "Geral" ? "Visão Geral de Desempenho" : selectedDeck}
+            </h2>
+          </div>
+
+          {user && (
             <button
-              onClick={() => setIsModalOpen(true)}
-              className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-xl transition flex items-center justify-center gap-2"
+              onClick={() => { setFormato(selectedFormato); setIsModalOpen(true); }}
+              className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-xl transition"
             >
               + Registrar Partida
             </button>
+          )}
+        </div>
+
+        {/* CARDS DE STATS */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
+            <p className="text-xs text-gray-400 font-medium">Winrate Filtrada</p>
+            <p className="text-3xl font-extrabold text-white mt-2">{winrate}%</p>
+            <p className="text-xs text-gray-500 mt-1">{vitorias}V - {empates}E - {derrotas}D ({totalJogos} jogos)</p>
           </div>
 
-          {/* Grid de Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
-              <p className="text-xs text-gray-400 font-medium">Winrate Geral do Jogador</p>
-              <p className="text-3xl font-extrabold text-white mt-2">{winrate}%</p>
-              <p className="text-xs text-gray-500 mt-1">{vitorias}V - {empates}E - {derrotas}D ({totalJogos} jogos)</p>
+          <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
+            <p className="text-xs text-gray-400 font-medium">Proporção de Resultados</p>
+            <div className="w-full bg-red-950/60 h-3 rounded-full mt-4 overflow-hidden flex">
+              <div className="bg-green-500 h-full" style={{ width: `${totalJogos > 0 ? (vitorias / totalJogos) * 100 : 0}%` }} />
+              <div className="bg-yellow-500 h-full" style={{ width: `${totalJogos > 0 ? (empates / totalJogos) * 100 : 0}%` }} />
             </div>
-
-            <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
-              <p className="text-xs text-gray-400 font-medium">Proporção de Vitórias</p>
-              <div className="w-full bg-red-950/60 h-3 rounded-full mt-4 overflow-hidden flex">
-                <div 
-                  className="bg-green-500 h-full transition-all duration-300"
-                  style={{ width: `${totalJogos > 0 ? (vitorias / totalJogos) * 100 : 0}%` }}
-                />
-                <div 
-                  className="bg-yellow-500 h-full transition-all duration-300"
-                  style={{ width: `${totalJogos > 0 ? (empates / totalJogos) * 100 : 0}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-xs text-gray-400 mt-2">
-                <span className="text-green-400">Vitórias ({vitorias})</span>
-                <span className="text-yellow-400">Empates ({empates})</span>
-                <span className="text-red-400">Derrotas ({derrotas})</span>
-              </div>
-            </div>
-
-            <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
-              <p className="text-xs text-gray-400 font-medium">Total de Registros</p>
-              <p className="text-3xl font-extrabold text-white mt-2">{totalJogos}</p>
-              <p className="text-xs text-gray-500 mt-1">Partidas salvas no banco</p>
+            <div className="flex justify-between text-xs text-gray-400 mt-2">
+              <span className="text-green-400">Vitórias ({vitorias})</span>
+              <span className="text-yellow-400">Empates ({empates})</span>
+              <span className="text-red-400">Derrotas ({derrotas})</span>
             </div>
           </div>
 
-          {/* Tabela de Histórico */}
-          <div className="bg-[#131b2e] rounded-xl border border-gray-800 overflow-hidden">
-            <div className="p-4 border-b border-gray-800">
-              <h3 className="font-bold text-sm text-gray-200">Histórico de Matchups</h3>
-            </div>
+          <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
+            <p className="text-xs text-gray-400 font-medium">Total de Registros Exibidos</p>
+            <p className="text-3xl font-extrabold text-white mt-2">{totalJogos}</p>
+            <p className="text-xs text-gray-500 mt-1">Filtrados no banco de dados</p>
+          </div>
+        </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-[#1c263d] text-gray-400 uppercase">
+        {/* TABELA DE WINRATE AGREGADA POR DECK (VISÃO DO TIME) */}
+        <div className="bg-[#131b2e] rounded-xl border border-gray-800 overflow-hidden">
+          <div className="p-4 border-b border-gray-800 flex justify-between items-center">
+            <h3 className="font-bold text-sm text-gray-200">
+              Métricas Gerais do Time por {selectedFormato === "Duel 500" ? "Comandante" : "Deck"} ({selectedFormato})
+            </h3>
+            <span className="text-xs text-gray-500">Dados consolidados de todos os jogadores</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#1c263d] text-gray-400 uppercase">
+                <tr>
+                  <th className="p-3">{selectedFormato === "Duel 500" ? "Comandante" : "Deck"}</th>
+                  <th className="p-3">Jogos Totais</th>
+                  <th className="p-3">Retrospecto (V-E-D)</th>
+                  <th className="p-3">Winrate Agregada</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {statsPorDeck.length === 0 ? (
                   <tr>
-                    <th className="p-3">Resultado</th>
-                    <th className="p-3">Meu Deck</th>
-                    <th className="p-3">Deck Adversário</th>
-                    <th className="p-3">Oponente</th>
-                    <th className="p-3">Placar</th>
-                    <th className="p-3">Torneio</th>
-                    <th className="p-3">Data</th>
-                    <th className="p-3 text-right">Ações</th>
+                    <td colSpan="4" className="text-center py-6 text-gray-500">
+                      Nenhum registro em {selectedFormato} ainda.
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-800">
-                  {partidasFiltradas.length === 0 ? (
-                    <tr>
-                      <td colSpan="8" className="text-center py-8 text-gray-500">
-                        Nenhuma partida registrada para este deck.
+                ) : (
+                  statsPorDeck.map((item) => (
+                    <tr key={item.deckName} className="hover:bg-[#182238] transition">
+                      <td className="p-3 font-semibold text-gray-200">{item.deckName}</td>
+                      <td className="p-3 text-gray-300">{item.total}</td>
+                      <td className="p-3 text-gray-400">{item.v}V - {item.e}E - {item.d}D</td>
+                      <td className="p-3">
+                        <span className={`font-bold ${Number(item.wr) >= 50 ? "text-green-400" : "text-red-400"}`}>
+                          {item.wr}%
+                        </span>
                       </td>
                     </tr>
-                  ) : (
-                    partidasFiltradas.map((p) => (
-                      <tr key={p.id} className="hover:bg-[#182238] transition">
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded font-bold ${
-                            p.resultado === "Vitória" 
-                              ? "bg-green-950 text-green-400 border border-green-800/50" 
-                              : p.resultado === "Empate"
-                              ? "bg-yellow-950 text-yellow-400 border border-yellow-800/50"
-                              : "bg-red-950 text-red-400 border border-red-800/50"
-                          }`}>
-                            {p.resultado}
-                          </span>
-                        </td>
-                        <td className="p-3 font-medium text-gray-200">{p.meuDeck}</td>
-                        <td className="p-3 text-gray-300">{p.deckAdversario}</td>
-                        <td className="p-3 text-gray-400">{p.oponente || "-"}</td>
-                        <td className="p-3 font-mono text-gray-300">{p.placar}</td>
-                        <td className="p-3 text-gray-400">{p.torneio || "-"}</td>
-                        <td className="p-3 text-gray-500">{p.data}</td>
-                        <td className="p-3 text-right">
-                          <button 
-                            onClick={() => handleDeleteMatch(p.id)}
-                            className="text-red-400 hover:text-red-300 font-semibold"
-                          >
-                            Excluir
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        </main>
-      ) : (
-        <div className="max-w-md mx-auto mt-20 text-center bg-[#131b2e] p-8 rounded-xl border border-gray-800">
-          <h2 className="text-xl font-bold mb-2">Bem-vindo ao Dashboard</h2>
-          <p className="text-sm text-gray-400 mb-6">
-            Faça login com sua conta do Google para visualizar e registrar seus relatórios de partidas do time.
-          </p>
-          <button
-            onClick={handleGoogleLogin}
-            className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-xl transition"
-          >
-            Entrar com Google
-          </button>
         </div>
-      )}
 
-      {/* Modal de Registro */}
+        {/* HISTÓRICO COMPLETO DE MATCHUPS */}
+        <div className="bg-[#131b2e] rounded-xl border border-gray-800 overflow-hidden">
+          <div className="p-4 border-b border-gray-800">
+            <h3 className="font-bold text-sm text-gray-200">Histórico Detalhado de Partidas</h3>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#1c263d] text-gray-400 uppercase">
+                <tr>
+                  <th className="p-3">Jogador</th>
+                  <th className="p-3">Resultado</th>
+                  <th className="p-3">{selectedFormato === "Duel 500" ? "Meu Comandante" : "Meu Deck"}</th>
+                  <th className="p-3">Oponente</th>
+                  <th className="p-3">Deck Oponente</th>
+                  <th className="p-3">Placar</th>
+                  <th className="p-3">Torneio</th>
+                  <th className="p-3">Data</th>
+                  {user && <th className="p-3 text-right">Ações</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {partidasFiltradas.length === 0 ? (
+                  <tr>
+                    <td colSpan="9" className="text-center py-8 text-gray-500">
+                      Nenhuma partida encontrada para os filtros selecionados.
+                    </td>
+                  </tr>
+                ) : (
+                  partidasFiltradas.map((p) => (
+                    <tr key={p.id} className="hover:bg-[#182238] transition">
+                      <td className="p-3 font-semibold text-red-400">{p.userName || "Anônimo"}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded font-bold ${
+                          p.resultado === "Vitória" 
+                            ? "bg-green-950 text-green-400 border border-green-800/50" 
+                            : p.resultado === "Empate"
+                            ? "bg-yellow-950 text-yellow-400 border border-yellow-800/50"
+                            : "bg-red-950 text-red-400 border border-red-800/50"
+                        }`}>
+                          {p.resultado}
+                        </span>
+                      </td>
+                      <td className="p-3 font-medium text-gray-200">
+                        {p.meuDeck}
+                        {p.companion && (
+                          <span className="block text-[10px] text-purple-400 font-normal">
+                            + {p.companion} (Companion)
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 text-gray-400">{p.oponente || "-"}</td>
+                      <td className="p-3 text-gray-300">{p.deckAdversario}</td>
+                      <td className="p-3 font-mono text-gray-300">{p.placar}</td>
+                      <td className="p-3 text-gray-400">{p.torneio || "-"}</td>
+                      <td className="p-3 text-gray-500">{p.data}</td>
+                      {user && (
+                        <td className="p-3 text-right">
+                          {p.userId === user.uid && (
+                            <button 
+                              onClick={() => handleDeleteMatch(p.id)}
+                              className="text-red-400 hover:text-red-300 font-semibold"
+                            >
+                              Excluir
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      {/* MODAL DE REGISTRO DE PARTIDA */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[#131b2e] border border-gray-800 w-full max-w-md rounded-xl p-6 relative">
+          <div className="bg-[#131b2e] border border-gray-800 w-full max-w-md rounded-xl p-6 relative max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-4">Registrar Nova Partida</h3>
             
             <form onSubmit={handleSubmitMatch} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-gray-400 mb-1">Meu Deck</label>
-                <input
-                  type="text"
-                  required
-                  list="decks-sugeridos"
-                  placeholder="Digite o nome do deck ou escolha um..."
-                  value={meuDeck}
-                  onChange={(e) => setMeuDeck(e.target.value)}
-                  className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
-                />
-                <datalist id="decks-sugeridos">
-                  {decksCadastrados.map((deck) => (
-                    <option key={deck} value={deck} />
-                  ))}
-                </datalist>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 mb-1">Formato</label>
+                  <select
+                    value={formato}
+                    onChange={(e) => {
+                      const newFormato = e.target.value;
+                      setFormato(newFormato);
+                      if (newFormato !== "Duel 500") setCompanion(""); // Limpa o companion se mudar pra Pauper
+                    }}
+                    className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
+                  >
+                    <option value="Pauper">Pauper</option>
+                    <option value="Duel 500">Duel 500</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1">
+                    {formato === "Duel 500" ? "Meu Comandante" : "Meu Deck"}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    list="modal-decks-sugeridos"
+                    placeholder={formato === "Duel 500" ? "Ex: Kellan, Planar Trailblazer" : "Ex: Mono Red Burn"}
+                    value={meuDeck}
+                    onChange={(e) => setMeuDeck(e.target.value)}
+                    className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
+                  />
+                  <datalist id="modal-decks-sugeridos">
+                    {decksCadastrados.map((d) => (
+                      <option key={d} value={d} />
+                    ))}
+                  </datalist>
+                </div>
               </div>
 
+              {/* CAMPO DE COMPANION EXCLUSIVO PARA DUEL 500 */}
+              {formato === "Duel 500" && (
+                <div>
+                  <label className="block text-purple-400 font-semibold mb-1">
+                    Companion <span className="text-gray-500 font-normal">(Opcional - deixe vazio se não usar)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Lurrus, Obosh, Jegantha..."
+                    value={companion}
+                    onChange={(e) => setCompanion(e.target.value)}
+                    className="w-full bg-[#1c263d] border border-purple-800/60 rounded-lg p-2.5 text-white focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              )}
+
               <div>
-                <label className="block text-gray-400 mb-1">Deck Adversário</label>
+                <label className="block text-gray-400 mb-1">
+                  {formato === "Duel 500" ? "Comandante do Oponente" : "Deck Adversário"}
+                </label>
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Jund Wildfire, Kuldotha Burn..."
+                  placeholder={formato === "Duel 500" ? "Ex: Feldon, Rona, etc." : "Ex: Grixis Affinity, Burn..."}
                   value={deckAdversario}
                   onChange={(e) => setDeckAdversario(e.target.value)}
                   className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
@@ -444,7 +548,7 @@ export default function App() {
                   <label className="block text-gray-400 mb-1">Torneio / Evento</label>
                   <input
                     type="text"
-                    placeholder="Ex: Mensal Agosto"
+                    placeholder="Ex: Semanal Duel 500"
                     value={torneio}
                     onChange={(e) => setTorneio(e.target.value)}
                     className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
