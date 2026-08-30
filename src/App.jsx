@@ -15,6 +15,47 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
+// =========================================================================
+// 1. MAPEAMENTO E FUNÇÃO AUXILIAR (DECLARADOS FORA DO COMPONENTE)
+// =========================================================================
+const MAPA_JOGADORES = {
+  "jhowrod2013": "Jonathan Rodrigues",
+  "jhowrod2013@gmail.com": "Jonathan Rodrigues",
+  "renatoigawa": "Renato Igawa",
+  "renatoigawa@gmail.com": "Renato Igawa",
+  "ncpf1985": "Nirmen", // Ajuste para o nome correto do Nirmen se for diferente
+};
+
+const getNomeJogador = (partida) => {
+  // 1. Se o userName já estiver no mapa, retorna o nome correto
+  if (partida.userName && MAPA_JOGADORES[partida.userName]) {
+    return MAPA_JOGADORES[partida.userName];
+  }
+  
+  // 2. Se tiver userName válido e não precisar de mapa, usa ele
+  if (partida.userName && partida.userName.trim() !== "" && !partida.userName.includes("@")) {
+    return partida.userName;
+  }
+
+  // 3. Tratamento pelo e-mail se for registro antigo
+  if (partida.userEmail) {
+    if (MAPA_JOGADORES[partida.userEmail]) {
+      return MAPA_JOGADORES[partida.userEmail];
+    }
+    const nick = partida.userEmail.split('@')[0];
+    if (MAPA_JOGADORES[nick]) {
+      return MAPA_JOGADORES[nick];
+    }
+    // Fallback caso seja um e-mail novo
+    return nick.charAt(0).toUpperCase() + nick.slice(1);
+  }
+
+  return "Jogador Desconhecido";
+};
+
+// =========================================================================
+// COMPONENTE PRINCIPAL
+// =========================================================================
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -124,12 +165,12 @@ export default function App() {
     }
   };
 
-  // --- FILTRAGEM DOS DADOS ---
-  // 1. Extração Global de todos os Jogadores do Banco de Dados
+  // --- FILTRAGEM DOS DADOS (ATUALIZADOS PARA USAR getNomeJogador) ---
+  // 1. Extração Global de todos os Jogadores do Banco de Dados sem duplicatas
   const jogadoresCadastrados = Array.from(
     new Set(
       partidas
-        .map(p => p.userName || (p.userEmail ? p.userEmail.split('@')[0] : null))
+        .map(p => getNomeJogador(p))
         .filter(Boolean)
     )
   );
@@ -143,10 +184,7 @@ export default function App() {
   // 3. Filtra por Jogador selecionado
   const partidasDoJogador = selectedPlayer === "Todos"
     ? partidasDoFormato
-    : partidasDoFormato.filter(p => {
-        const nomePartida = p.userName || (p.userEmail ? p.userEmail.split('@')[0] : "");
-        return nomePartida === selectedPlayer;
-      });
+    : partidasDoFormato.filter(p => getNomeJogador(p) === selectedPlayer);
 
   // 4. Lista de Decks disponíveis para o jogador/formato selecionado
   const decksCadastrados = Array.from(new Set(partidasDoJogador.map(p => p.meuDeck).filter(Boolean)));
@@ -395,8 +433,9 @@ export default function App() {
                 ) : (
                   partidasFiltradas.map((p) => (
                     <tr key={p.id} className="hover:bg-[#182238] transition">
+                      {/* ATUALIZADO AQUI PARA USAR getNomeJogador */}
                       <td className="p-3 font-semibold text-red-400">
-                        {p.userName || (p.userEmail ? p.userEmail.split('@')[0] : "Jogador")}
+                        {getNomeJogador(p)}
                       </td>
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded font-bold ${
