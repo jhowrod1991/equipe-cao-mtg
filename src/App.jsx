@@ -135,13 +135,13 @@ export default function App() {
         userName: nomeJogador,
         userEmail: user.email || "",
         formato: formato,
-        meuDeck: meuDeck || "Sem Nome",
-        companion: formato === "Duel 500" ? companion : "",
-        deckAdversario: deckAdversario || "",
-        oponente: oponente || "",
+        meuDeck: meuDeck ? meuDeck.trim() : "Sem Nome",
+        companion: formato === "Duel 500" ? companion.trim() : "",
+        deckAdversario: deckAdversario ? deckAdversario.trim() : "",
+        oponente: oponente ? oponente.trim() : "",
         placar: placar || "2-0",
         resultado: resultado || "Vitória",
-        torneio: torneio || "",
+        torneio: torneio ? torneio.trim() : "",
         data: new Date().toISOString().split('T')[0]
       });
 
@@ -165,7 +165,7 @@ export default function App() {
     }
   };
 
-  // --- FILTRAGEM DOS DADOS (ATUALIZADOS PARA USAR getNomeJogador) ---
+  // --- FILTRAGEM DOS DADOS (ATUALIZADOS PARA USAR getNomeJogador E REMOVER ESPAÇOS EM BRANCO) ---
   // 1. Extração Global de todos os Jogadores do Banco de Dados sem duplicatas
   const jogadoresCadastrados = Array.from(
     new Set(
@@ -186,13 +186,19 @@ export default function App() {
     ? partidasDoFormato
     : partidasDoFormato.filter(p => getNomeJogador(p) === selectedPlayer);
 
-  // 4. Lista de Decks disponíveis para o jogador/formato selecionado
-  const decksCadastrados = Array.from(new Set(partidasDoJogador.map(p => p.meuDeck).filter(Boolean)));
+  // 4. Lista de Decks disponíveis para o jogador/formato selecionado (Normalizados com .trim())
+  const decksCadastrados = Array.from(
+    new Set(
+      partidasDoJogador
+        .map(p => p.meuDeck ? p.meuDeck.trim() : "")
+        .filter(Boolean)
+    )
+  );
 
   // 5. Filtra por Deck selecionado
   const partidasFiltradas = selectedDeck === "Geral"
     ? partidasDoJogador
-    : partidasDoJogador.filter(p => p.meuDeck === selectedDeck);
+    : partidasDoJogador.filter(p => p.meuDeck && p.meuDeck.trim().toLowerCase() === selectedDeck.toLowerCase());
 
   // --- MÉTRICAS GERAIS ---
   const totalJogos = partidasFiltradas.length;
@@ -201,9 +207,11 @@ export default function App() {
   const derrotas = partidasFiltradas.filter(p => p.resultado === "Derrota").length;
   const winrate = totalJogos > 0 ? ((vitorias / totalJogos) * 100).toFixed(0) : 0;
 
-  // --- CONSOLIDAÇÃO DE WINRATE POR DECK ---
+  // --- CONSOLIDAÇÃO DE WINRATE POR DECK (AGRUPAMENTO INSENSÍVEL A MAIÚSCULAS/MINÚSCULAS) ---
   const statsPorDeck = decksCadastrados.map(deckName => {
-    const partidasDoDeck = partidasDoJogador.filter(p => p.meuDeck === deckName);
+    const partidasDoDeck = partidasDoJogador.filter(
+      p => p.meuDeck && p.meuDeck.trim().toLowerCase() === deckName.toLowerCase()
+    );
     const total = partidasDoDeck.length;
     const v = partidasDoDeck.filter(p => p.resultado === "Vitória").length;
     const e = partidasDoDeck.filter(p => p.resultado === "Empate").length;
@@ -433,7 +441,6 @@ export default function App() {
                 ) : (
                   partidasFiltradas.map((p) => (
                     <tr key={p.id} className="hover:bg-[#182238] transition">
-                      {/* ATUALIZADO AQUI PARA USAR getNomeJogador */}
                       <td className="p-3 font-semibold text-red-400">
                         {getNomeJogador(p)}
                       </td>
