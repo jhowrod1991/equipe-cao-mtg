@@ -19,11 +19,30 @@ import { auth, db } from "./firebase";
 // 1. MAPEAMENTO E FUNÇÃO AUXILIAR (DECLARADOS FORA DO COMPONENTE)
 // =========================================================================
 const MAPA_JOGADORES = {
+  // Jonathan
   "jhowrod2013": "Jonathan Rodrigues",
   "jhowrod2013@gmail.com": "Jonathan Rodrigues",
+  "Jonathan Rodrigues": "Jonathan Rodrigues",
+
+  // Renato
   "renatoigawa": "Renato Igawa",
   "renatoigawa@gmail.com": "Renato Igawa",
-  "ncpf1985": "Nirmen", // Ajuste para o nome correto do Nirmen se for diferente
+  "Renato": "Renato Igawa",
+  "Renato Igawa": "Renato Igawa",
+  "Renatinho": "Renato Igawa",
+  "renatinho": "Renato Igawa",
+
+  // Nirmen
+  "ncpf1985": "Nirmen",
+  "Nirmen": "Nirmen",
+  "nirmen": "Nirmen",
+  "Nirmen pinheiro": "Nirmen",
+  "Nirmen Pinheiro": "Nirmen",
+  "nirmen pinheiro": "Nirmen",
+
+  // Outros membros da equipe (para garantir padronização)
+  "André Vitor SalinasPereira": "André Vitor Salinas Pereira",
+  "Dener Ulian": "Dener Ulian",
 };
 
 const getNomeJogador = (partida) => {
