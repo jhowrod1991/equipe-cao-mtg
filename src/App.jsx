@@ -8,6 +8,7 @@ import {
 import { 
   collection, 
   addDoc, 
+  updateDoc,
   query, 
   onSnapshot, 
   deleteDoc, 
@@ -86,6 +87,7 @@ export default function App() {
   const [selectedDeck, setSelectedDeck] = useState("Geral");
 
   // Form states (Modal)
+  const [editingId, setEditingId] = useState(null); // Controla se é edição ou criação
   const [formato, setFormato] = useState("Pauper");
   const [meuDeck, setMeuDeck] = useState("");
   const [companion, setCompanion] = useState("");
@@ -94,6 +96,7 @@ export default function App() {
   const [placar, setPlacar] = useState("2-0");
   const [resultado, setResultado] = useState("Vitória");
   const [torneio, setTorneio] = useState("");
+  const [dataPartida, setDataPartida] = useState(new Date().toISOString().split('T')[0]);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Observador de Autenticação
@@ -139,6 +142,35 @@ export default function App() {
 
   const handleLogout = () => signOut(auth);
 
+  // Limpa o formulário do modal
+  const resetForm = () => {
+    setEditingId(null);
+    setFormato(selectedFormato);
+    setMeuDeck("");
+    setCompanion("");
+    setDeckAdversario("");
+    setOponente("");
+    setPlacar("2-0");
+    setResultado("Vitória");
+    setTorneio("");
+    setDataPartida(new Date().toISOString().split('T')[0]);
+  };
+
+  // Prepara o modal para EDIÇÃO com os dados da partida selecionada
+  const handleEditMatch = (p) => {
+    setEditingId(p.id);
+    setFormato(p.formato || "Pauper");
+    setMeuDeck(p.meuDeck || "");
+    setCompanion(p.companion || "");
+    setDeckAdversario(p.deckAdversario || "");
+    setOponente(p.oponente || "");
+    setPlacar(p.placar || "2-0");
+    setResultado(p.resultado || "Vitória");
+    setTorneio(p.torneio || "");
+    setDataPartida(p.data || new Date().toISOString().split('T')[0]);
+    setIsModalOpen(true);
+  };
+
   const handleSubmitMatch = async (e) => {
     e.preventDefault();
     if (!user) {
@@ -148,57 +180,63 @@ export default function App() {
 
     // --- TRAVA DE VALIDAÇÃO ENTRE RESULTADO E PLACAR ---
     if (resultado === "Derrota" && (placar === "2-0" || placar === "2-1")) {
-      alert(`Inconsistência: Você selecionou 'Derrota', mas o placar está como vitória (${placar}). Por favor, ajuste o placar para 0-2 ou 1-2.`);
+      alert(`Inconsistência: Você selecionou 'Derrota', mas o placar está como vitória (${placar}). Ajuste o placar para 0-2 ou 1-2.`);
       return;
     }
 
     if (resultado === "Vitória" && (placar === "0-2" || placar === "1-2")) {
-      alert(`Inconsistência: Você selecionou 'Vitória', mas o placar está como derrota (${placar}). Por favor, ajuste o placar para 2-0 ou 2-1.`);
+      alert(`Inconsistência: Você selecionou 'Vitória', mas o placar está como derrota (${placar}). Ajuste o placar para 2-0 ou 2-1.`);
       return;
     }
 
     if (resultado === "Empate" && (placar === "2-0" || placar === "2-1" || placar === "0-2" || placar === "1-2")) {
-      alert(`Inconsistência: Você selecionou 'Empate', mas o placar está como (${placar}). Por favor, ajuste o placar para 1-1, 1-1-1 ou 0-0.`);
+      alert(`Inconsistência: Você selecionou 'Empate', mas o placar está como (${placar}). Ajuste o placar para 1-1, 1-1-1 ou 0-0.`);
       return;
     }
 
-    const nomeJogador = user.displayName || (user.email ? user.email.split('@')[0] : "Jogador");
+    const payload = {
+      formato: formato,
+      meuDeck: meuDeck ? meuDeck.trim() : "Sem Nome",
+      companion: formato === "Duel 500" ? companion.trim() : "",
+      deckAdversario: deckAdversario ? deckAdversario.trim() : "",
+      oponente: oponente ? oponente.trim() : "",
+      placar: placar || "2-0",
+      resultado: resultado || "Vitória",
+      torneio: torneio ? torneio.trim() : "",
+      data: dataPartida || new Date().toISOString().split('T')[0]
+    };
 
     try {
-      await addDoc(collection(db, "partidas"), {
-        userId: user.uid,
-        userName: nomeJogador,
-        userEmail: user.email || "",
-        formato: formato,
-        meuDeck: meuDeck ? meuDeck.trim() : "Sem Nome",
-        companion: formato === "Duel 500" ? companion.trim() : "",
-        deckAdversario: deckAdversario ? deckAdversario.trim() : "",
-        oponente: oponente ? oponente.trim() : "",
-        placar: placar || "2-0",
-        resultado: resultado || "Vitória",
-        torneio: torneio ? torneio.trim() : "",
-        data: new Date().toISOString().split('T')[0]
-      });
+      if (editingId) {
+        // Modo de EDIÇÃO
+        await updateDoc(doc(db, "partidas", editingId), payload);
+        alert("Partida atualizada com sucesso!");
+      } else {
+        // Modo de CRIAÇÃO
+        const nomeJogador = user.displayName || (user.email ? user.email.split('@')[0] : "Jogador");
+        await addDoc(collection(db, "partidas"), {
+          ...payload,
+          userId: user.uid,
+          userName: nomeJogador,
+          userEmail: user.email || ""
+        });
+        alert("Partida registrada com sucesso!");
+      }
 
-      setMeuDeck("");
-      setCompanion("");
-      setDeckAdversario("");
-      setOponente("");
-      setTorneio("");
-      setResultado("Vitória");
-      setPlacar("2-0");
+      resetForm();
       setIsModalOpen(false);
-      alert("Partida registrada com sucesso!");
     } catch (error) {
       alert("Erro ao salvar partida: " + error.message);
     }
   };
 
   const handleDeleteMatch = async (id) => {
-    try {
-      await deleteDoc(doc(db, "partidas", id));
-    } catch (error) {
-      console.error("Erro ao deletar partida:", error);
+    if (window.confirm("Tem certeza que deseja excluir esta partida?")) {
+      try {
+        await deleteDoc(doc(db, "partidas", id));
+      } catch (error) {
+        console.error("Erro ao deletar partida:", error);
+      }
     }
   };
 
@@ -375,9 +413,7 @@ export default function App() {
           {user && (
             <button
               onClick={() => { 
-                setFormato(selectedFormato); 
-                setResultado("Vitória");
-                setPlacar("2-0");
+                resetForm();
                 setIsModalOpen(true); 
               }}
               className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-xl transition"
@@ -520,12 +556,20 @@ export default function App() {
                       {user && (
                         <td className="p-3 text-right">
                           {p.userId === user.uid && (
-                            <button 
-                              onClick={() => handleDeleteMatch(p.id)}
-                              className="text-red-400 hover:text-red-300 font-semibold"
-                            >
-                              Excluir
-                            </button>
+                            <div className="flex justify-end gap-2">
+                              <button 
+                                onClick={() => handleEditMatch(p)}
+                                className="text-blue-400 hover:text-blue-300 font-semibold"
+                              >
+                                Editar
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteMatch(p.id)}
+                                className="text-red-400 hover:text-red-300 font-semibold"
+                              >
+                                Excluir
+                              </button>
+                            </div>
                           )}
                         </td>
                       )}
@@ -538,11 +582,13 @@ export default function App() {
         </div>
       </main>
 
-      {/* MODAL DE REGISTRO DE PARTIDA */}
+      {/* MODAL DE REGISTRO E EDIÇÃO DE PARTIDA */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#131b2e] border border-gray-800 w-full max-w-md rounded-xl p-6 relative max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-bold mb-4">Registrar Nova Partida</h3>
+            <h3 className="text-lg font-bold mb-4">
+              {editingId ? "Editar Partida" : "Registrar Nova Partida"}
+            </h3>
             
             <form onSubmit={handleSubmitMatch} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
@@ -624,7 +670,6 @@ export default function App() {
                   />
                 </div>
 
-                {/* CAMPO DE RESULTADO COM PREENCHIMENTO AUTOMÁTICO DO PLACAR */}
                 <div>
                   <label className="block text-gray-400 mb-1">Resultado</label>
                   <select
@@ -675,6 +720,17 @@ export default function App() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-gray-400 mb-1">Data da Partida</label>
+                <input
+                  type="date"
+                  required
+                  value={dataPartida}
+                  onChange={(e) => setDataPartida(e.target.value)}
+                  className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
+                />
+              </div>
+
               <div className="flex justify-end gap-3 mt-6 pt-2 border-t border-gray-800">
                 <button
                   type="button"
@@ -687,7 +743,7 @@ export default function App() {
                   type="submit"
                   className="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-lg transition"
                 >
-                  Salvar Partida
+                  {editingId ? "Salvar Alterações" : "Salvar Partida"}
                 </button>
               </div>
             </form>
