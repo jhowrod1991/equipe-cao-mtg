@@ -16,7 +16,7 @@ import {
 import { auth, db } from "./firebase";
 
 // =========================================================================
-// 1. MAPEAMENTO E FUNÇÃO AUXILIAR (DECLARADOS FORA DO COMPONENTE)
+// 1. MAPEAMENTO E FUNÇÕES AUXILIARES (PADRONIZAÇÃO DE JOGADORES E DECKS)
 // =========================================================================
 const MAPA_JOGADORES = {
   // Jonathan
@@ -40,32 +40,35 @@ const MAPA_JOGADORES = {
   "Nirmen Pinheiro": "Nirmen",
   "nirmen pinheiro": "Nirmen",
 
-  // Outros membros da equipe (para garantir padronização)
+  // Outros Membros
   "André Vitor SalinasPereira": "André Vitor Salinas Pereira",
-  "Dener Ulian": "Dener Ulian",
+  "Dener Ulian": "Dener Ulian"
 };
 
 const getNomeJogador = (partida) => {
-  // 1. Se o userName já estiver no mapa, retorna o nome correto
-  if (partida.userName && MAPA_JOGADORES[partida.userName]) {
-    return MAPA_JOGADORES[partida.userName];
-  }
-  
-  // 2. Se tiver userName válido e não precisar de mapa, usa ele
-  if (partida.userName && partida.userName.trim() !== "" && !partida.userName.includes("@")) {
-    return partida.userName;
+  const userName = partida.userName ? partida.userName.trim() : "";
+  const userEmail = partida.userEmail ? partida.userEmail.trim() : "";
+
+  // Busca priorizada pelo userName no mapa
+  if (userName && MAPA_JOGADORES[userName]) {
+    return MAPA_JOGADORES[userName];
   }
 
-  // 3. Tratamento pelo e-mail se for registro antigo
-  if (partida.userEmail) {
-    if (MAPA_JOGADORES[partida.userEmail]) {
-      return MAPA_JOGADORES[partida.userEmail];
-    }
-    const nick = partida.userEmail.split('@')[0];
+  // Busca pelo userEmail no mapa
+  if (userEmail && MAPA_JOGADORES[userEmail]) {
+    return MAPA_JOGADORES[userEmail];
+  }
+
+  // Retorno padrão caso não esteja explicitamente mapeado
+  if (userName !== "" && !userName.includes("@")) {
+    return userName;
+  }
+
+  if (userEmail) {
+    const nick = userEmail.split('@')[0];
     if (MAPA_JOGADORES[nick]) {
       return MAPA_JOGADORES[nick];
     }
-    // Fallback caso seja um e-mail novo
     return nick.charAt(0).toUpperCase() + nick.slice(1);
   }
 
@@ -184,15 +187,15 @@ export default function App() {
     }
   };
 
-  // --- FILTRAGEM DOS DADOS (ATUALIZADOS PARA USAR getNomeJogador E REMOVER ESPAÇOS EM BRANCO) ---
-  // 1. Extração Global de todos os Jogadores do Banco de Dados sem duplicatas
+  // --- FILTRAGEM DOS DADOS ---
+  // 1. Jogadores unificados
   const jogadoresCadastrados = Array.from(
     new Set(
       partidas
         .map(p => getNomeJogador(p))
         .filter(Boolean)
     )
-  );
+  ).sort();
 
   // 2. Filtra por Formato
   const partidasDoFormato = partidas.filter(p => {
@@ -205,19 +208,36 @@ export default function App() {
     ? partidasDoFormato
     : partidasDoFormato.filter(p => getNomeJogador(p) === selectedPlayer);
 
-  // 4. Lista de Decks disponíveis para o jogador/formato selecionado (Normalizados com .trim())
+  // 4. Lista de Decks disponíveis (Normalizados com .trim())
   const decksCadastrados = Array.from(
     new Set(
       partidasDoJogador
         .map(p => p.meuDeck ? p.meuDeck.trim() : "")
         .filter(Boolean)
     )
-  );
+  ).sort();
 
   // 5. Filtra por Deck selecionado
   const partidasFiltradas = selectedDeck === "Geral"
     ? partidasDoJogador
     : partidasDoJogador.filter(p => p.meuDeck && p.meuDeck.trim().toLowerCase() === selectedDeck.toLowerCase());
+
+  // --- ORDENAÇÃO CRONOLÓGICA E POR JOGADOR ---
+  const partidasOrdenadas = [...partidasFiltradas].sort((a, b) => {
+    const stringDataA = a.data ? String(a.data).trim() : "";
+    const stringDataB = b.data ? String(b.data).trim() : "";
+
+    // Ordenação DECRESCENTE por data (YYYY-MM-DD)
+    if (stringDataA !== stringDataB) {
+      return stringDataB.localeCompare(stringDataA);
+    }
+
+    // Desempate por ordem alfabética do Jogador
+    const nomeA = getNomeJogador(a);
+    const nomeB = getNomeJogador(b);
+
+    return nomeA.localeCompare(nomeB);
+  });
 
   // --- MÉTRICAS GERAIS ---
   const totalJogos = partidasFiltradas.length;
@@ -226,7 +246,7 @@ export default function App() {
   const derrotas = partidasFiltradas.filter(p => p.resultado === "Derrota").length;
   const winrate = totalJogos > 0 ? ((vitorias / totalJogos) * 100).toFixed(0) : 0;
 
-  // --- CONSOLIDAÇÃO DE WINRATE POR DECK (AGRUPAMENTO INSENSÍVEL A MAIÚSCULAS/MINÚSCULAS) ---
+  // --- CONSOLIDAÇÃO DE WINRATE POR DECK ---
   const statsPorDeck = decksCadastrados.map(deckName => {
     const partidasDoDeck = partidasDoJogador.filter(
       p => p.meuDeck && p.meuDeck.trim().toLowerCase() === deckName.toLowerCase()
@@ -451,14 +471,14 @@ export default function App() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {partidasFiltradas.length === 0 ? (
+                {partidasOrdenadas.length === 0 ? (
                   <tr>
                     <td colSpan="9" className="text-center py-8 text-gray-500">
                       Nenhuma partida encontrada para os filtros selecionados.
                     </td>
                   </tr>
                 ) : (
-                  partidasFiltradas.map((p) => (
+                  partidasOrdenadas.map((p) => (
                     <tr key={p.id} className="hover:bg-[#182238] transition">
                       <td className="p-3 font-semibold text-red-400">
                         {getNomeJogador(p)}
