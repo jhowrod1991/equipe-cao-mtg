@@ -49,17 +49,14 @@ const getNomeJogador = (partida) => {
   const userName = partida.userName ? partida.userName.trim() : "";
   const userEmail = partida.userEmail ? partida.userEmail.trim() : "";
 
-  // Busca priorizada pelo userName no mapa
   if (userName && MAPA_JOGADORES[userName]) {
     return MAPA_JOGADORES[userName];
   }
 
-  // Busca pelo userEmail no mapa
   if (userEmail && MAPA_JOGADORES[userEmail]) {
     return MAPA_JOGADORES[userEmail];
   }
 
-  // Retorno padrão caso não esteja explicitamente mapeado
   if (userName !== "" && !userName.includes("@")) {
     return userName;
   }
@@ -149,6 +146,22 @@ export default function App() {
       return;
     }
 
+    // --- TRAVA DE VALIDAÇÃO ENTRE RESULTADO E PLACAR ---
+    if (resultado === "Derrota" && (placar === "2-0" || placar === "2-1")) {
+      alert(`Inconsistência: Você selecionou 'Derrota', mas o placar está como vitória (${placar}). Por favor, ajuste o placar para 0-2 ou 1-2.`);
+      return;
+    }
+
+    if (resultado === "Vitória" && (placar === "0-2" || placar === "1-2")) {
+      alert(`Inconsistência: Você selecionou 'Vitória', mas o placar está como derrota (${placar}). Por favor, ajuste o placar para 2-0 ou 2-1.`);
+      return;
+    }
+
+    if (resultado === "Empate" && (placar === "2-0" || placar === "2-1" || placar === "0-2" || placar === "1-2")) {
+      alert(`Inconsistência: Você selecionou 'Empate', mas o placar está como (${placar}). Por favor, ajuste o placar para 1-1, 1-1-1 ou 0-0.`);
+      return;
+    }
+
     const nomeJogador = user.displayName || (user.email ? user.email.split('@')[0] : "Jogador");
 
     try {
@@ -172,6 +185,8 @@ export default function App() {
       setDeckAdversario("");
       setOponente("");
       setTorneio("");
+      setResultado("Vitória");
+      setPlacar("2-0");
       setIsModalOpen(false);
       alert("Partida registrada com sucesso!");
     } catch (error) {
@@ -188,7 +203,6 @@ export default function App() {
   };
 
   // --- FILTRAGEM DOS DADOS ---
-  // 1. Jogadores unificados
   const jogadoresCadastrados = Array.from(
     new Set(
       partidas
@@ -197,18 +211,15 @@ export default function App() {
     )
   ).sort();
 
-  // 2. Filtra por Formato
   const partidasDoFormato = partidas.filter(p => {
     const fmt = (p.formato === "Duel Commander") ? "Duel 500" : (p.formato || "Pauper");
     return fmt === selectedFormato;
   });
 
-  // 3. Filtra por Jogador selecionado
   const partidasDoJogador = selectedPlayer === "Todos"
     ? partidasDoFormato
     : partidasDoFormato.filter(p => getNomeJogador(p) === selectedPlayer);
 
-  // 4. Lista de Decks disponíveis (Normalizados com .trim())
   const decksCadastrados = Array.from(
     new Set(
       partidasDoJogador
@@ -217,7 +228,6 @@ export default function App() {
     )
   ).sort();
 
-  // 5. Filtra por Deck selecionado
   const partidasFiltradas = selectedDeck === "Geral"
     ? partidasDoJogador
     : partidasDoJogador.filter(p => p.meuDeck && p.meuDeck.trim().toLowerCase() === selectedDeck.toLowerCase());
@@ -227,12 +237,10 @@ export default function App() {
     const stringDataA = a.data ? String(a.data).trim() : "";
     const stringDataB = b.data ? String(b.data).trim() : "";
 
-    // Ordenação DECRESCENTE por data (YYYY-MM-DD)
     if (stringDataA !== stringDataB) {
       return stringDataB.localeCompare(stringDataA);
     }
 
-    // Desempate por ordem alfabética do Jogador
     const nomeA = getNomeJogador(a);
     const nomeB = getNomeJogador(b);
 
@@ -297,7 +305,6 @@ export default function App() {
       <main className="max-w-6xl mx-auto mt-6 space-y-6">
         {/* BARRA DE FILTROS GLOBAIS */}
         <div className="bg-[#131b2e] p-4 rounded-xl border border-gray-800 flex flex-wrap items-center justify-between gap-4">
-          {/* Seletor de Formato */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400 font-medium">Formato:</span>
             <button
@@ -318,7 +325,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* Seletor de Jogador */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400 font-medium">Jogador:</span>
             <select
@@ -333,7 +339,6 @@ export default function App() {
             </select>
           </div>
 
-          {/* Seletor de Deck */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400 font-medium">
               {selectedFormato === "Duel 500" ? "Comandante:" : "Deck:"}
@@ -369,7 +374,12 @@ export default function App() {
 
           {user && (
             <button
-              onClick={() => { setFormato(selectedFormato); setIsModalOpen(true); }}
+              onClick={() => { 
+                setFormato(selectedFormato); 
+                setResultado("Vitória");
+                setPlacar("2-0");
+                setIsModalOpen(true); 
+              }}
               className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-xl transition"
             >
               + Registrar Partida
@@ -573,7 +583,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CAMPO DE COMPANION EXCLUSIVO PARA DUEL 500 */}
               {formato === "Duel 500" && (
                 <div>
                   <label className="block text-purple-400 font-semibold mb-1">
@@ -615,6 +624,7 @@ export default function App() {
                   />
                 </div>
 
+                {/* CAMPO DE RESULTADO COM PREENCHIMENTO AUTOMÁTICO DO PLACAR */}
                 <div>
                   <label className="block text-gray-400 mb-1">Resultado</label>
                   <select
@@ -624,7 +634,7 @@ export default function App() {
                       setResultado(res);
                       if (res === "Vitória") setPlacar("2-0");
                       else if (res === "Empate") setPlacar("1-1");
-                      else setPlacar("0-2");
+                      else if (res === "Derrota") setPlacar("0-2");
                     }}
                     className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
                   >
