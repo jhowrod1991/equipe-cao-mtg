@@ -19,7 +19,7 @@ import { auth, db } from "./firebase";
 // =========================================================================
 // 0. LINK DO GOOGLE DRIVE (COLE O SEU LINK DA PASTA AQUI)
 // =========================================================================
-const LINK_DRIVE_GUIDES = "Chttps://drive.google.com/drive/folders/13dCumB0jtuRjgRoZbQdMbA-foo6LAjmC?usp=sharing";
+const LINK_DRIVE_GUIDES = "https://drive.google.com/drive/folders/13dCumB0jtuRjgRoZbQdMbA-foo6LAjmC?usp=sharing";
 
 // =========================================================================
 // 1. MAPEAMENTO E FUNÇÕES AUXILIARES (PADRONIZAÇÃO DE JOGADORES E DECKS)
