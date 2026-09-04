@@ -17,6 +17,11 @@ import {
 import { auth, db } from "./firebase";
 
 // =========================================================================
+// 0. LINK DO GOOGLE DRIVE (COLE O SEU LINK DA PASTA AQUI)
+// =========================================================================
+const LINK_DRIVE_GUIDES = "Chttps://drive.google.com/drive/folders/13dCumB0jtuRjgRoZbQdMbA-foo6LAjmC?usp=sharing";
+
+// =========================================================================
 // 1. MAPEAMENTO E FUNÇÕES AUXILIARES (PADRONIZAÇÃO DE JOGADORES E DECKS)
 // =========================================================================
 const MAPA_JOGADORES = {
@@ -87,7 +92,7 @@ export default function App() {
   const [selectedDeck, setSelectedDeck] = useState("Geral");
 
   // Form states (Modal)
-  const [editingId, setEditingId] = useState(null); // Controla se é edição ou criação
+  const [editingId, setEditingId] = useState(null);
   const [formato, setFormato] = useState("Pauper");
   const [meuDeck, setMeuDeck] = useState("");
   const [companion, setCompanion] = useState("");
@@ -178,7 +183,7 @@ export default function App() {
       return;
     }
 
-    // --- TRAVA DE VALIDAÇÃO ENTRE RESULTADO E PLACAR ---
+    // Validação entre resultado e placar
     if (resultado === "Derrota" && (placar === "2-0" || placar === "2-1")) {
       alert(`Inconsistência: Você selecionou 'Derrota', mas o placar está como vitória (${placar}). Ajuste o placar para 0-2 ou 1-2.`);
       return;
@@ -208,11 +213,9 @@ export default function App() {
 
     try {
       if (editingId) {
-        // Modo de EDIÇÃO
         await updateDoc(doc(db, "partidas", editingId), payload);
         alert("Partida atualizada com sucesso!");
       } else {
-        // Modo de CRIAÇÃO
         const nomeJogador = user.displayName || (user.email ? user.email.split('@')[0] : "Jogador");
         await addDoc(collection(db, "partidas"), {
           ...payload,
@@ -249,6 +252,14 @@ export default function App() {
     )
   ).sort();
 
+  const torneiosCadastrados = Array.from(
+    new Set(
+      partidas
+        .map(p => p.torneio ? p.torneio.trim() : "")
+        .filter(Boolean)
+    )
+  ).sort();
+
   const partidasDoFormato = partidas.filter(p => {
     const fmt = (p.formato === "Duel Commander") ? "Duel 500" : (p.formato || "Pauper");
     return fmt === selectedFormato;
@@ -270,7 +281,7 @@ export default function App() {
     ? partidasDoJogador
     : partidasDoJogador.filter(p => p.meuDeck && p.meuDeck.trim().toLowerCase() === selectedDeck.toLowerCase());
 
-  // --- ORDENAÇÃO CRONOLÓGICA E POR JOGADOR ---
+  // Ordenação cronológica e por jogador
   const partidasOrdenadas = [...partidasFiltradas].sort((a, b) => {
     const stringDataA = a.data ? String(a.data).trim() : "";
     const stringDataB = b.data ? String(b.data).trim() : "";
@@ -285,14 +296,14 @@ export default function App() {
     return nomeA.localeCompare(nomeB);
   });
 
-  // --- MÉTRICAS GERAIS ---
+  // Métricas
   const totalJogos = partidasFiltradas.length;
   const vitorias = partidasFiltradas.filter(p => p.resultado === "Vitória").length;
   const empates = partidasFiltradas.filter(p => p.resultado === "Empate").length;
   const derrotas = partidasFiltradas.filter(p => p.resultado === "Derrota").length;
   const winrate = totalJogos > 0 ? ((vitorias / totalJogos) * 100).toFixed(0) : 0;
 
-  // --- CONSOLIDAÇÃO DE WINRATE POR DECK ---
+  // Stats por Deck
   const statsPorDeck = decksCadastrados.map(deckName => {
     const partidasDoDeck = partidasDoJogador.filter(
       p => p.meuDeck && p.meuDeck.trim().toLowerCase() === deckName.toLowerCase()
@@ -317,27 +328,42 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0b0f19] text-gray-100 p-4 md:p-8 font-sans">
       {/* Header */}
-      <header className="max-w-6xl mx-auto flex justify-between items-center pb-6 border-b border-gray-800">
+      <header className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-gray-800">
         <div>
           <h1 className="text-2xl font-bold tracking-wide text-red-500">EQUIPE CÃO MTG</h1>
           <p className="text-xs text-gray-400">Dashboard de Performance & Matchups</p>
         </div>
         
-        {user ? (
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium">{user.displayName || "Jogador"}</p>
-              <p className="text-xs text-gray-500">{user.email}</p>
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+          {/* BOTÃO DO GOOGLE DRIVE */}
+          <a
+            href={LINK_DRIVE_GUIDES}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-[#1c263d] hover:bg-[#253352] text-blue-400 hover:text-blue-300 border border-blue-900/50 text-xs font-semibold px-3 py-2 rounded-lg transition shadow-sm"
+          >
+            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+              <path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H5V8h14v10zM5 6v-.01h14V6H5z"/>
+            </svg>
+            <span>📁 Guides do Time</span>
+          </a>
+
+          {user ? (
+            <div className="flex items-center gap-3">
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-medium">{user.displayName || "Jogador"}</p>
+                <p className="text-xs text-gray-500">{user.email}</p>
+              </div>
+              <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 text-xs px-3 py-2 rounded-lg transition">
+                Sair
+              </button>
             </div>
-            <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 text-xs px-3 py-2 rounded-lg transition">
-              Sair
+          ) : (
+            <button onClick={handleGoogleLogin} className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
+              Entrar com Google
             </button>
-          </div>
-        ) : (
-          <button onClick={handleGoogleLogin} className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
-            Entrar com Google
-          </button>
-        )}
+          )}
+        </div>
       </header>
 
       <main className="max-w-6xl mx-auto mt-6 space-y-6">
@@ -712,11 +738,17 @@ export default function App() {
                   <label className="block text-gray-400 mb-1">Torneio / Evento</label>
                   <input
                     type="text"
-                    placeholder="Ex: Semanal Duel 500"
+                    list="modal-torneios-sugeridos"
+                    placeholder="Ex: Semanal 03/09"
                     value={torneio}
                     onChange={(e) => setTorneio(e.target.value)}
                     className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-red-500"
                   />
+                  <datalist id="modal-torneios-sugeridos">
+                    {torneiosCadastrados.map((t) => (
+                      <option key={t} value={t} />
+                    ))}
+                  </datalist>
                 </div>
               </div>
 
