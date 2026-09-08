@@ -19,11 +19,9 @@ import {
 import { auth, db } from "./firebase";
 
 // =========================================================================
-// 0. LINK DO GOOGLE DRIVE
+// 0. CONFIGURAÇÕES
 // =========================================================================
 const LINK_DRIVE_GUIDES = "https://drive.google.com/drive/folders/13dCumB0jtuRjgRoZbQdMbA-foo6LAjmC?usp=sharing";
-
-// EMAIL DO ADMINISTRADOR (SÓ VOCÊ VERÁ A ABA ADMIN)
 const ADMIN_EMAIL = "jhowrod2013@gmail.com";
 
 // =========================================================================
@@ -64,12 +62,15 @@ const getNomeJogador = (partida) => {
   return "Jogador Desconhecido";
 };
 
-// Algoritmo de emparelhamento Suíço
+// =========================================================================
+// 2. ALGORITMO SUÍÇO COM TRATAMENTO DE BYE ÚNICO
+// =========================================================================
 const gerarRodadaSuico = (jogadores, historicoConfrontos) => {
   const ordenados = [...jogadores].sort((a, b) => b.pontos - a.pontos);
   const emparamentos = [];
   const copia = [...ordenados];
 
+  // Caso total de jogadores seja ímpar, atribui BYE a quem ainda não teve
   if (copia.length % 2 !== 0) {
     const byeIdx = copia.findLastIndex(j => !j.teveBye);
     const jBye = byeIdx !== -1 ? copia.splice(byeIdx, 1)[0] : copia.pop();
@@ -99,21 +100,19 @@ const gerarRodadaSuico = (jogadores, historicoConfrontos) => {
   return emparamentos;
 };
 
-// =========================================================================
-// COMPONENTE PRINCIPAL
-// =========================================================================
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [partidas, setPartidas] = useState([]);
+  const [historicoTorneios, setHistoricoTorneios] = useState([]);
   const [activeTab, setActiveTab] = useState("dashboard"); // 'dashboard' | 'torneios' | 'admin'
 
-  // Filtros de Visualização Dashboard
+  // Filtros Dashboard
   const [selectedFormato, setSelectedFormato] = useState("Pauper");
   const [selectedPlayer, setSelectedPlayer] = useState("Todos");
   const [selectedDeck, setSelectedDeck] = useState("Geral");
 
-  // Form states (Modal Dashboard)
+  // State Modal Partidas Dashboard
   const [editingId, setEditingId] = useState(null);
   const [formato, setFormato] = useState("Pauper");
   const [meuDeck, setMeuDeck] = useState("");
@@ -126,7 +125,7 @@ export default function App() {
   const [dataPartida, setDataPartida] = useState(new Date().toISOString().split('T')[0]);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // --- ESTADOS DO MÓDULO DE TORNEIOS ---
+  // Estados Módulo de Torneios
   const [nomeTorneio, setNomeTorneio] = useState("");
   const [formatoTorneio, setFormatoTorneio] = useState("Pauper");
   const [jogadoresTorneio, setJogadoresTorneio] = useState([]);
@@ -136,8 +135,11 @@ export default function App() {
   const [rodadas, setRodadas] = useState([]); 
   const [historicoConfrontos, setHistoricoConfrontos] = useState([]);
   const [torneioAtivo, setTorneioAtivo] = useState(null);
+  const [torneioSelecionadoHistorico, setTorneioSelecionadoHistorico] = useState(null);
 
-  // Observador de Autenticação
+  // Edição de Match em Torneio Ativo
+  const [editingMatch, setEditingMatch] = useState(null); // { rIdx, mIdx, placarP1, placarP2 }
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -146,24 +148,24 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Busca TODAS as partidas no Firestore
+  // Busca Partidas
   useEffect(() => {
     const q = query(collection(db, "partidas"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const docs = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setPartidas(docs);
-        setLoading(false);
-      },
-      (error) => {
-        console.error("Erro ao buscar partidas:", error);
-        setLoading(false);
-      }
-    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setPartidas(docs);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Busca Histórico de Torneios
+  useEffect(() => {
+    const q = query(collection(db, "historico_torneios"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setHistoricoTorneios(docs);
+    });
     return () => unsubscribe();
   }, []);
 
@@ -172,7 +174,7 @@ export default function App() {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error) {
-      alert("Erro ao abrir login: " + error.message);
+      alert("Erro ao logar: " + error.message);
     }
   };
 
@@ -191,7 +193,7 @@ export default function App() {
     setDataPartida(new Date().toISOString().split('T')[0]);
   };
 
-  const handleEditMatch = (p) => {
+  const handleEditMatchDashboard = (p) => {
     setEditingId(p.id);
     setFormato(p.formato || "Pauper");
     setMeuDeck(p.meuDeck || "");
@@ -207,13 +209,10 @@ export default function App() {
 
   const handleSubmitMatch = async (e) => {
     e.preventDefault();
-    if (!user) {
-      alert("Você precisa estar autenticado para salvar.");
-      return;
-    }
+    if (!user) return alert("Você precisa estar logado.");
 
     const payload = {
-      formato: formato,
+      formato,
       meuDeck: meuDeck ? meuDeck.trim() : "Sem Nome",
       companion: formato === "Duel 500" ? companion.trim() : "",
       deckAdversario: deckAdversario ? deckAdversario.trim() : "",
@@ -241,48 +240,40 @@ export default function App() {
       resetForm();
       setIsModalOpen(false);
     } catch (error) {
-      alert("Erro ao salvar partida: " + error.message);
+      alert("Erro ao salvar: " + error.message);
     }
   };
 
   const handleDeleteMatch = async (id) => {
-    if (window.confirm("Tem certeza que deseja excluir esta partida?")) {
+    if (window.confirm("Excluir esta partida?")) {
       try {
         await deleteDoc(doc(db, "partidas", id));
       } catch (error) {
-        console.error("Erro ao deletar partida:", error);
+        console.error("Erro ao deletar:", error);
       }
     }
   };
 
-  // --- RECURSO: DELETAR TODAS AS PARTIDAS DE UM TORNEIO COMPLETO (EXCLUSIVO ADMIN) ---
   const handleDeletarTorneioInteiro = async (nomeTorneioParaDeletar) => {
-    if (!window.confirm(`ATENÇÃO: Deseja EXCLUIR TODAS as partidas cadastradas do torneio "${nomeTorneioParaDeletar}"? Esta ação é irreversível.`)) return;
+    if (!window.confirm(`Excluir todas as partidas do torneio "${nomeTorneioParaDeletar}"?`)) return;
 
     try {
       const q = query(collection(db, "partidas"), where("torneio", "==", nomeTorneioParaDeletar));
       const querySnapshot = await getDocs(q);
-      
       const promises = [];
       querySnapshot.forEach((documento) => {
         promises.push(deleteDoc(doc(db, "partidas", documento.id)));
       });
-
       await Promise.all(promises);
-      alert(`Todas as partidas do torneio "${nomeTorneioParaDeletar}" foram excluídas!`);
+      alert(`Partidas do torneio "${nomeTorneioParaDeletar}" removidas!`);
     } catch (err) {
-      alert("Erro ao deletar torneio: " + err.message);
+      alert("Erro: " + err.message);
     }
   };
 
-  // --- FUNÇÕES DO MÓDULO DE TORNEIO ---
+  // --- MÓDULO TORNEIO ---
   const handleAdicionarJogadorTorneio = () => {
-    if (!novoJogadorNome.trim()) {
-      alert("Informe pelo menos o nome do jogador!");
-      return;
-    }
-
-    // Deck/Comandante agora é OPCIONAL
+    if (!novoJogadorNome.trim()) return alert("Informe o nome do jogador!");
     const deckFinal = novoJogadorDeck.trim() || "Não Informado";
 
     setJogadoresTorneio([
@@ -298,10 +289,7 @@ export default function App() {
   };
 
   const handleIniciarTorneio = () => {
-    if (jogadoresTorneio.length < 2) {
-      alert("É necessário pelo menos 2 jogadores para iniciar o torneio.");
-      return;
-    }
+    if (jogadoresTorneio.length < 2) return alert("Mínimo de 2 jogadores para iniciar.");
     const nomeFinal = nomeTorneio.trim() || `Torneio ${formatoTorneio} ${new Date().toLocaleDateString('pt-BR')}`;
     const primeiraRodada = gerarRodadaSuico(jogadoresTorneio, []);
     
@@ -310,14 +298,13 @@ export default function App() {
     setRodadaAtual(1);
   };
 
-  const handleAtualizarPlacarMatch = (rodadaIdx, matchIdx, p1G, p2G) => {
+  const handleAtualizarPlacarMatch = (rIdx, mIdx, p1G, p2G) => {
     const novasRodadas = [...rodadas];
-    const m = novasRodadas[rodadaIdx][matchIdx];
+    const m = novasRodadas[rIdx][mIdx];
     m.placarP1 = p1G;
     m.placarP2 = p2G;
     m.status = "Concluído";
     setRodadas(novasRodadas);
-
     recalcularPontuacaoGeral(novasRodadas);
   };
 
@@ -353,11 +340,7 @@ export default function App() {
   const handleProximaRodada = () => {
     const rodadaAtualMatches = rodadas[rodadaAtual - 1];
     const pendentes = rodadaAtualMatches.some(m => m.p2 && m.status !== "Concluído");
-    
-    if (pendentes) {
-      alert("Ainda existem partidas pendentes nesta rodada!");
-      return;
-    }
+    if (pendentes) return alert("Finalize todas as partidas da rodada antes de avançar!");
 
     const novoHist = [...historicoConfrontos];
     rodadaAtualMatches.forEach(m => {
@@ -371,9 +354,12 @@ export default function App() {
   };
 
   const handleEncerrarEExportarTorneio = async () => {
-    if (!window.confirm("Deseja encerrar o torneio e enviar todas as partidas para o banco de dados do Dashboard?")) return;
+    if (!window.confirm("Encerrar o torneio e enviar todas as partidas ao banco de dados do Dashboard?")) return;
 
     try {
+      const classificacaoFinal = [...jogadoresTorneio].sort((a, b) => b.pontos - a.pontos);
+
+      // Salva partidas individuais no Dashboard
       for (let rIdx = 0; rIdx < rodadas.length; rIdx++) {
         const matches = rodadas[rIdx];
         for (let m of matches) {
@@ -417,7 +403,16 @@ export default function App() {
         }
       }
 
-      alert("Torneio finalizado com sucesso! As partidas foram registradas no Dashboard.");
+      // Salva Registro Completo no Histórico de Torneios
+      await addDoc(collection(db, "historico_torneios"), {
+        nome: torneioAtivo.nome,
+        formato: torneioAtivo.formato,
+        data: torneioAtivo.data,
+        classificacao: classificacaoFinal,
+        rodadas: rodadas
+      });
+
+      alert("Torneio encerrado! O resultado final ficou salvo no histórico.");
       setTorneioAtivo(null);
       setRodadas([]);
       setRodadaAtual(0);
@@ -425,21 +420,15 @@ export default function App() {
       setHistoricoConfrontos([]);
       setActiveTab("dashboard");
     } catch (err) {
-      alert("Erro ao exportar torneio: " + err.message);
+      alert("Erro ao finalizar torneio: " + err.message);
     }
   };
 
-  // VERIFICAÇÃO SE O USUÁRIO LOGADO É O ADMIN
   const isAdmin = user && (user.email === ADMIN_EMAIL || user.displayName === "Jonathan Rodrigues");
 
-  // --- FILTRAGEM DOS DADOS DASHBOARD ---
-  const jogadoresCadastrados = Array.from(
-    new Set(partidas.map(p => getNomeJogador(p)).filter(Boolean))
-  ).sort();
-
-  const torneiosCadastrados = Array.from(
-    new Set(partidas.map(p => p.torneio ? p.torneio.trim() : "").filter(Boolean))
-  ).sort();
+  // Filtros Dashboard
+  const jogadoresCadastrados = Array.from(new Set(partidas.map(p => getNomeJogador(p)).filter(Boolean))).sort();
+  const torneiosCadastrados = Array.from(new Set(partidas.map(p => p.torneio ? p.torneio.trim() : "").filter(Boolean))).sort();
 
   const partidasDoFormato = partidas.filter(p => {
     const fmt = (p.formato === "Duel Commander") ? "Duel 500" : (p.formato || "Pauper");
@@ -450,9 +439,7 @@ export default function App() {
     ? partidasDoFormato
     : partidasDoFormato.filter(p => getNomeJogador(p) === selectedPlayer);
 
-  const decksCadastrados = Array.from(
-    new Set(partidasDoJogador.map(p => p.meuDeck ? p.meuDeck.trim() : "").filter(Boolean))
-  ).sort();
+  const decksCadastrados = Array.from(new Set(partidasDoJogador.map(p => p.meuDeck ? p.meuDeck.trim() : "").filter(Boolean))).sort();
 
   const partidasFiltradas = selectedDeck === "Geral"
     ? partidasDoJogador
@@ -481,7 +468,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-gray-100 p-4 md:p-8 font-sans">
-      {/* Header */}
       <header className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-gray-800">
         <div>
           <h1 className="text-2xl font-bold tracking-wide text-red-500">EQUIPE CÃO MTG</h1>
@@ -509,7 +495,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* NAVEGAÇÃO DE ABAS */}
+      {/* NAV TABS */}
       <nav className="max-w-6xl mx-auto mt-4 flex gap-2 border-b border-gray-800 pb-2">
         <button
           onClick={() => setActiveTab("dashboard")}
@@ -528,7 +514,6 @@ export default function App() {
           ⚔️ Módulo de Torneio (Swiss)
         </button>
 
-        {/* ABA EXCLUSIVA DO ADMINISTRADOR */}
         {isAdmin && (
           <button
             onClick={() => setActiveTab("admin")}
@@ -541,7 +526,6 @@ export default function App() {
         )}
       </nav>
 
-      {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-6xl mx-auto mt-6 space-y-6">
         {activeTab === "dashboard" && (
           <>
@@ -594,7 +578,6 @@ export default function App() {
               )}
             </div>
 
-            {/* STATS CARDS */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-[#131b2e] p-5 rounded-xl border border-gray-800">
                 <p className="text-xs text-gray-400 font-medium">Winrate ({selectedPlayer})</p>
@@ -614,7 +597,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* TABELA MATCHUPS */}
             <div className="bg-[#131b2e] rounded-xl border border-gray-800 overflow-hidden">
               <div className="p-4 border-b border-gray-800"><h3 className="font-bold text-sm text-gray-200">Histórico de Partidas</h3></div>
               <div className="overflow-x-auto">
@@ -650,7 +632,7 @@ export default function App() {
                         {user && (
                           <td className="p-3 text-right">
                             <div className="flex justify-end gap-2">
-                              <button onClick={() => handleEditMatch(p)} className="text-blue-400 hover:underline">Editar</button>
+                              <button onClick={() => handleEditMatchDashboard(p)} className="text-blue-400 hover:underline">Editar</button>
                               <button onClick={() => handleDeleteMatch(p.id)} className="text-red-400 hover:underline">Excluir</button>
                             </div>
                           </td>
@@ -664,79 +646,146 @@ export default function App() {
           </>
         )}
 
-        {/* ABA MÓDULO DE TORNEIOS (SWISS) */}
+        {/* ABA MÓDULO DE TORNEIOS */}
         {activeTab === "torneios" && (
           <div className="space-y-6">
             {!torneioAtivo ? (
-              <div className="bg-[#131b2e] p-6 rounded-xl border border-gray-800 space-y-6">
-                <h2 className="text-xl font-bold text-red-500">🏆 Iniciar Novo Torneio do Time</h2>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Nome do Torneio</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Semanal Duel 500 #01"
-                      value={nomeTorneio}
-                      onChange={(e) => setNomeTorneio(e.target.value)}
-                      className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2 text-xs text-white"
-                    />
+              <div className="space-y-6">
+                {/* FORMULARIO DE NOVO TORNEIO */}
+                <div className="bg-[#131b2e] p-6 rounded-xl border border-gray-800 space-y-6">
+                  <h2 className="text-xl font-bold text-red-500">🏆 Iniciar Novo Torneio do Time</h2>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Nome do Torneio</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Semanal Duel 500 #01"
+                        value={nomeTorneio}
+                        onChange={(e) => setNomeTorneio(e.target.value)}
+                        className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2 text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Formato</label>
+                      <select
+                        value={formatoTorneio}
+                        onChange={(e) => setFormatoTorneio(e.target.value)}
+                        className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2 text-xs text-white"
+                      >
+                        <option value="Pauper">Pauper</option>
+                        <option value="Duel 500">Duel 500</option>
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Formato</label>
-                    <select
-                      value={formatoTorneio}
-                      onChange={(e) => setFormatoTorneio(e.target.value)}
-                      className="w-full bg-[#1c263d] border border-gray-700 rounded-lg p-2 text-xs text-white"
-                    >
-                      <option value="Pauper">Pauper</option>
-                      <option value="Duel 500">Duel 500</option>
-                    </select>
+
+                  <div className="border-t border-gray-800 pt-4 space-y-3">
+                    <h3 className="text-sm font-semibold text-gray-300">Inscrição de Jogadores</h3>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nome do Jogador"
+                        value={novoJogadorNome}
+                        onChange={(e) => setNovoJogadorNome(e.target.value)}
+                        className="bg-[#1c263d] border border-gray-700 rounded-lg p-2 text-xs text-white flex-1"
+                      />
+                      <input
+                        type="text"
+                        placeholder={formatoTorneio === "Duel 500" ? "Comandante (Opcional)" : "Deck (Opcional)"}
+                        value={novoJogadorDeck}
+                        onChange={(e) => setNovoJogadorDeck(e.target.value)}
+                        className="bg-[#1c263d] border border-gray-700 rounded-lg p-2 text-xs text-white flex-1"
+                      />
+                      <button onClick={handleAdicionarJogadorTorneio} className="bg-red-600 hover:bg-red-700 text-white text-xs px-4 rounded-lg font-bold">
+                        + Adicionar
+                      </button>
+                    </div>
+
+                    <div className="bg-[#1c263d] p-3 rounded-lg max-h-48 overflow-y-auto space-y-2">
+                      {jogadoresTorneio.length === 0 ? (
+                        <p className="text-xs text-gray-500">Nenhum jogador inscrito até o momento.</p>
+                      ) : (
+                        jogadoresTorneio.map((j) => (
+                          <div key={j.id} className="flex justify-between items-center text-xs bg-[#131b2e] p-2 rounded border border-gray-800">
+                            <span><strong className="text-red-400">{j.nome}</strong> ({j.deck})</span>
+                            <button onClick={() => handleRemoverJogadorTorneio(j.id)} className="text-red-500 font-bold hover:underline">Remover</button>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
+
+                  <button onClick={handleIniciarTorneio} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition">
+                    🚀 Gerar Rodada 1 e Startar Torneio
+                  </button>
                 </div>
 
-                <div className="border-t border-gray-800 pt-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-300">Inscrição de Jogadores</h3>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Nome do Jogador"
-                      value={novoJogadorNome}
-                      onChange={(e) => setNovoJogadorNome(e.target.value)}
-                      className="bg-[#1c263d] border border-gray-700 rounded-lg p-2 text-xs text-white flex-1"
-                    />
-                    <input
-                      type="text"
-                      placeholder={formatoTorneio === "Duel 500" ? "Comandante (Opcional)" : "Deck (Opcional)"}
-                      value={novoJogadorDeck}
-                      onChange={(e) => setNovoJogadorDeck(e.target.value)}
-                      className="bg-[#1c263d] border border-gray-700 rounded-lg p-2 text-xs text-white flex-1"
-                    />
-                    <button onClick={handleAdicionarJogadorTorneio} className="bg-red-600 hover:bg-red-700 text-white text-xs px-4 rounded-lg font-bold">
-                      + Adicionar
-                    </button>
-                  </div>
+                {/* CONSULTA DE HISTÓRICO DE TORNEIOS FINALIZADOS */}
+                <div className="bg-[#131b2e] p-6 rounded-xl border border-gray-800 space-y-4">
+                  <h3 className="text-base font-bold text-gray-200">📜 Histórico de Torneios Encerrados</h3>
+                  
+                  {historicoTorneios.length === 0 ? (
+                    <p className="text-xs text-gray-500">Nenhum torneio arquivado até o momento.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap gap-2">
+                        {historicoTorneios.map(t => (
+                          <button
+                            key={t.id}
+                            onClick={() => setTorneioSelecionadoHistorico(t)}
+                            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition ${
+                              torneioSelecionadoHistorico?.id === t.id 
+                                ? "bg-red-600 border-red-500 text-white" 
+                                : "bg-[#1c263d] border-gray-700 text-gray-300 hover:border-gray-500"
+                            }`}
+                          >
+                            {t.nome} ({t.data})
+                          </button>
+                        ))}
+                      </div>
 
-                  <div className="bg-[#1c263d] p-3 rounded-lg max-h-48 overflow-y-auto space-y-2">
-                    {jogadoresTorneio.length === 0 ? (
-                      <p className="text-xs text-gray-500">Nenhum jogador inscrito até o momento.</p>
-                    ) : (
-                      jogadoresTorneio.map((j) => (
-                        <div key={j.id} className="flex justify-between items-center text-xs bg-[#131b2e] p-2 rounded border border-gray-800">
-                          <span><strong className="text-red-400">{j.nome}</strong> ({j.deck})</span>
-                          <button onClick={() => handleRemoverJogadorTorneio(j.id)} className="text-red-500 font-bold hover:underline">Remover</button>
+                      {torneioSelecionadoHistorico && (
+                        <div className="bg-[#1c263d] p-4 rounded-xl space-y-4 border border-gray-700">
+                          <div className="flex justify-between items-center pb-2 border-b border-gray-700">
+                            <div>
+                              <h4 className="font-bold text-sm text-red-400">{torneioSelecionadoHistorico.nome}</h4>
+                              <p className="text-[11px] text-gray-400">Formato: {torneioSelecionadoHistorico.formato} | Data: {torneioSelecionadoHistorico.data}</p>
+                            </div>
+                          </div>
+
+                          <div>
+                            <h5 className="font-bold text-xs text-gray-300 mb-2">🥇 Classificação Final</h5>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs bg-[#131b2e] rounded-lg overflow-hidden">
+                                <thead className="bg-[#253352] text-gray-300 uppercase">
+                                  <tr>
+                                    <th className="p-2">Pos</th>
+                                    <th className="p-2">Jogador</th>
+                                    <th className="p-2">Deck/Comandante</th>
+                                    <th className="p-2">Pontos</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-800">
+                                  {torneioSelecionadoHistorico.classificacao.map((j, idx) => (
+                                    <tr key={idx}>
+                                      <td className="p-2 font-bold">{idx + 1}º</td>
+                                      <td className="p-2 font-semibold text-red-400">{j.nome}</td>
+                                      <td className="p-2 text-gray-300">{j.deck}</td>
+                                      <td className="p-2 font-bold text-green-400">{j.pontos} pts</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
                         </div>
-                      ))
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-
-                <button onClick={handleIniciarTorneio} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition">
-                  🚀 Gerar Rodada 1 e Startar Torneio
-                </button>
               </div>
             ) : (
-              /* PAINEL DE RODADAS */
+              /* PAINEL DE TORNEIO EM ANDAMENTO */
               <div className="space-y-6">
                 <div className="flex justify-between items-center bg-[#131b2e] p-4 rounded-xl border border-gray-800">
                   <div>
@@ -830,7 +879,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA EXCLUSIVA DE ADMIN (SÓ VOCÊ PODE VER) */}
+        {/* ABA ADMIN EXCLUSIVA */}
         {activeTab === "admin" && isAdmin && (
           <div className="bg-[#131b2e] p-6 rounded-xl border border-purple-900/50 space-y-4">
             <div>
@@ -863,7 +912,7 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL PADRÃO DE REGISTRO/EDIÇÃO */}
+      {/* MODAL REGISTRO/EDIÇÃO DASHBOARD */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#131b2e] border border-gray-800 w-full max-w-md rounded-xl p-6 relative max-h-[90vh] overflow-y-auto">
