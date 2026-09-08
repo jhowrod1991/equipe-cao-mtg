@@ -23,6 +23,9 @@ import { auth, db } from "./firebase";
 // =========================================================================
 const LINK_DRIVE_GUIDES = "https://drive.google.com/drive/folders/13dCumB0jtuRjgRoZbQdMbA-foo6LAjmC?usp=sharing";
 
+// EMAIL DO ADMINISTRADOR (SÓ VOCÊ VERÁ A ABA ADMIN)
+const ADMIN_EMAIL = "jhowrod2013@gmail.com";
+
 // =========================================================================
 // 1. MAPEAMENTO DE JOGADORES
 // =========================================================================
@@ -103,7 +106,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [partidas, setPartidas] = useState([]);
-  const [activeTab, setActiveTab] = useState("dashboard"); // 'dashboard' | 'torneios'
+  const [activeTab, setActiveTab] = useState("dashboard"); // 'dashboard' | 'torneios' | 'admin'
 
   // Filtros de Visualização Dashboard
   const [selectedFormato, setSelectedFormato] = useState("Pauper");
@@ -252,7 +255,7 @@ export default function App() {
     }
   };
 
-  // --- RECURSO: DELETAR TODAS AS PARTIDAS DE UM TORNEIO COMPLETO ---
+  // --- RECURSO: DELETAR TODAS AS PARTIDAS DE UM TORNEIO COMPLETO (EXCLUSIVO ADMIN) ---
   const handleDeletarTorneioInteiro = async (nomeTorneioParaDeletar) => {
     if (!window.confirm(`ATENÇÃO: Deseja EXCLUIR TODAS as partidas cadastradas do torneio "${nomeTorneioParaDeletar}"? Esta ação é irreversível.`)) return;
 
@@ -274,13 +277,17 @@ export default function App() {
 
   // --- FUNÇÕES DO MÓDULO DE TORNEIO ---
   const handleAdicionarJogadorTorneio = () => {
-    if (!novoJogadorNome.trim() || !novoJogadorDeck.trim()) {
-      alert("Informe o nome do jogador e o deck/comandante!");
+    if (!novoJogadorNome.trim()) {
+      alert("Informe pelo menos o nome do jogador!");
       return;
     }
+
+    // Deck/Comandante agora é OPCIONAL
+    const deckFinal = novoJogadorDeck.trim() || "Não Informado";
+
     setJogadoresTorneio([
       ...jogadoresTorneio, 
-      { id: Date.now(), nome: novoJogadorNome.trim(), deck: novoJogadorDeck.trim(), pontos: 0, teveBye: false }
+      { id: Date.now(), nome: novoJogadorNome.trim(), deck: deckFinal, pontos: 0, teveBye: false }
     ]);
     setNovoJogadorNome("");
     setNovoJogadorDeck("");
@@ -303,7 +310,6 @@ export default function App() {
     setRodadaAtual(1);
   };
 
-  // RECURSO: EDITAR / ATUALIZAR PLACAR DE QUALQUER RODADA (MESMO ANTERIORES)
   const handleAtualizarPlacarMatch = (rodadaIdx, matchIdx, p1G, p2G) => {
     const novasRodadas = [...rodadas];
     const m = novasRodadas[rodadaIdx][matchIdx];
@@ -312,7 +318,6 @@ export default function App() {
     m.status = "Concluído";
     setRodadas(novasRodadas);
 
-    // Recalcular Tabela de Pontos Geral para manter coerência
     recalcularPontuacaoGeral(novasRodadas);
   };
 
@@ -360,7 +365,6 @@ export default function App() {
     });
     setHistoricoConfrontos(novoHist);
 
-    // Gerar Próxima Rodada
     const proxima = gerarRodadaSuico(jogadoresTorneio, novoHist);
     setRodadas([...rodadas, proxima]);
     setRodadaAtual(rodadaAtual + 1);
@@ -373,7 +377,7 @@ export default function App() {
       for (let rIdx = 0; rIdx < rodadas.length; rIdx++) {
         const matches = rodadas[rIdx];
         for (let m of matches) {
-          if (!m.p2) continue; // Pula BYE
+          if (!m.p2) continue;
 
           let resP1 = "Empate";
           if (m.placarP1 > m.placarP2) resP1 = "Vitória";
@@ -424,6 +428,9 @@ export default function App() {
       alert("Erro ao exportar torneio: " + err.message);
     }
   };
+
+  // VERIFICAÇÃO SE O USUÁRIO LOGADO É O ADMIN
+  const isAdmin = user && (user.email === ADMIN_EMAIL || user.displayName === "Jonathan Rodrigues");
 
   // --- FILTRAGEM DOS DADOS DASHBOARD ---
   const jogadoresCadastrados = Array.from(
@@ -520,11 +527,23 @@ export default function App() {
         >
           ⚔️ Módulo de Torneio (Swiss)
         </button>
+
+        {/* ABA EXCLUSIVA DO ADMINISTRADOR */}
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab("admin")}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition ${
+              activeTab === "admin" ? "bg-purple-600 text-white" : "bg-[#131b2e] text-gray-400 hover:text-white"
+            }`}
+          >
+            ⚙️ Admin (Apagar Testes)
+          </button>
+        )}
       </nav>
 
       {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-6xl mx-auto mt-6 space-y-6">
-        {activeTab === "dashboard" ? (
+        {activeTab === "dashboard" && (
           <>
             <div className="bg-[#131b2e] p-4 rounded-xl border border-gray-800 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-2">
@@ -563,21 +582,6 @@ export default function App() {
                 </select>
               </div>
             </div>
-
-            {/* GERENCIADOR DE TORNEIOS REGISTRADOS (PARA DELETAR TESTES) */}
-            {user && torneiosCadastrados.length > 0 && (
-              <div className="bg-[#131b2e] p-4 rounded-xl border border-gray-800 space-y-2">
-                <h4 className="text-xs font-bold text-gray-400 uppercase">🗑️ Gerenciar Torneios Registrados (Apagar Testes)</h4>
-                <div className="flex flex-wrap gap-2">
-                  {torneiosCadastrados.map(tNome => (
-                    <div key={tNome} className="flex items-center gap-2 bg-[#1c263d] px-3 py-1.5 rounded-lg border border-gray-700 text-xs">
-                      <span>{tNome}</span>
-                      <button onClick={() => handleDeletarTorneioInteiro(tNome)} className="text-red-400 hover:text-red-300 font-bold">🗑️ Apagar</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#131b2e] p-6 rounded-xl border border-gray-800">
               <div>
@@ -658,8 +662,10 @@ export default function App() {
               </div>
             </div>
           </>
-        ) : (
-          /* ABA MÓDULO DE TORNEIOS (SWISS) */
+        )}
+
+        {/* ABA MÓDULO DE TORNEIOS (SWISS) */}
+        {activeTab === "torneios" && (
           <div className="space-y-6">
             {!torneioAtivo ? (
               <div className="bg-[#131b2e] p-6 rounded-xl border border-gray-800 space-y-6">
@@ -701,7 +707,7 @@ export default function App() {
                     />
                     <input
                       type="text"
-                      placeholder={formatoTorneio === "Duel 500" ? "Comandante" : "Deck"}
+                      placeholder={formatoTorneio === "Duel 500" ? "Comandante (Opcional)" : "Deck (Opcional)"}
                       value={novoJogadorDeck}
                       onChange={(e) => setNovoJogadorDeck(e.target.value)}
                       className="bg-[#1c263d] border border-gray-700 rounded-lg p-2 text-xs text-white flex-1"
@@ -730,7 +736,7 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              /* TELA DE PAINEL DE RODADAS E HISTÓRICO DE RODADAS */
+              /* PAINEL DE RODADAS */
               <div className="space-y-6">
                 <div className="flex justify-between items-center bg-[#131b2e] p-4 rounded-xl border border-gray-800">
                   <div>
@@ -742,7 +748,6 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* VISUALIZAR E EDITAR TODAS AS RODADAS (INCLUINDO ANTERIORES) */}
                 <div className="space-y-6">
                   {rodadas.map((matches, rIdx) => (
                     <div key={rIdx} className={`p-4 rounded-xl border ${rIdx + 1 === rodadaAtual ? "bg-[#131b2e] border-red-500/50" : "bg-[#0f1626] border-gray-800 opacity-90"}`}>
@@ -797,9 +802,8 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* TABELA DE CLASSIFICAÇÃO ATUAL */}
                 <div className="bg-[#131b2e] rounded-xl border border-gray-800 overflow-hidden">
-                  <div className="p-3 border-b border-gray-800"><h3 className="font-bold text-xs text-gray-200">Classificação Parcial (Calculada Automaticamente)</h3></div>
+                  <div className="p-3 border-b border-gray-800"><h3 className="font-bold text-xs text-gray-200">Classificação Parcial</h3></div>
                   <table className="w-full text-left text-xs">
                     <thead className="bg-[#1c263d] text-gray-400 uppercase">
                       <tr>
@@ -823,6 +827,38 @@ export default function App() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ABA EXCLUSIVA DE ADMIN (SÓ VOCÊ PODE VER) */}
+        {activeTab === "admin" && isAdmin && (
+          <div className="bg-[#131b2e] p-6 rounded-xl border border-purple-900/50 space-y-4">
+            <div>
+              <h2 className="text-xl font-bold text-purple-400">⚙️ Painel de Administração</h2>
+              <p className="text-xs text-gray-400">Esta página é visível exclusivamente para você ({user.email}).</p>
+            </div>
+
+            <div className="border-t border-gray-800 pt-4 space-y-3">
+              <h3 className="text-sm font-bold text-gray-300">🗑️ Excluir Partidas Fictícias de Torneios</h3>
+              
+              {torneiosCadastrados.length === 0 ? (
+                <p className="text-xs text-gray-500">Nenhum torneio cadastrado encontrado no banco de dados.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {torneiosCadastrados.map(tNome => (
+                    <div key={tNome} className="flex items-center justify-between bg-[#1c263d] p-3 rounded-lg border border-gray-700 text-xs">
+                      <span className="font-semibold text-gray-200">{tNome}</span>
+                      <button 
+                        onClick={() => handleDeletarTorneioInteiro(tNome)} 
+                        className="bg-red-950 hover:bg-red-900 text-red-400 border border-red-800 px-2.5 py-1 rounded text-[11px] font-bold transition"
+                      >
+                        🗑️ Apagar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>
