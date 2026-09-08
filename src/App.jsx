@@ -137,9 +137,6 @@ export default function App() {
   const [torneioAtivo, setTorneioAtivo] = useState(null);
   const [torneioSelecionadoHistorico, setTorneioSelecionadoHistorico] = useState(null);
 
-  // Edição de Match em Torneio Ativo
-  const [editingMatch, setEditingMatch] = useState(null); // { rIdx, mIdx, placarP1, placarP2 }
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -403,13 +400,19 @@ export default function App() {
         }
       }
 
+      // CORREÇÃO FIRESTORE: Converte a matriz de rodadas [ [match], [match] ] em Objetos
+      const rodadasFormatadas = rodadas.map((matches, index) => ({
+        numeroRodada: index + 1,
+        matches: matches
+      }));
+
       // Salva Registro Completo no Histórico de Torneios
       await addDoc(collection(db, "historico_torneios"), {
         nome: torneioAtivo.nome,
         formato: torneioAtivo.formato,
         data: torneioAtivo.data,
         classificacao: classificacaoFinal,
-        rodadas: rodadas
+        rodadas: rodadasFormatadas
       });
 
       alert("Torneio encerrado! O resultado final ficou salvo no histórico.");
@@ -766,7 +769,7 @@ export default function App() {
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-800">
-                                  {torneioSelecionadoHistorico.classificacao.map((j, idx) => (
+                                  {torneioSelecionadoHistorico.classificacao?.map((j, idx) => (
                                     <tr key={idx}>
                                       <td className="p-2 font-bold">{idx + 1}º</td>
                                       <td className="p-2 font-semibold text-red-400">{j.nome}</td>
