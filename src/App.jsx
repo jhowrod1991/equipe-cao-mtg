@@ -28,35 +28,51 @@ const ADMIN_EMAIL = "jhowrod2013@gmail.com";
 // 1. MAPEAMENTO DE JOGADORES
 // =========================================================================
 const MAPA_JOGADORES = {
+  // Jonathan
   "jhowrod2013": "Jonathan Rodrigues",
   "jhowrod2013@gmail.com": "Jonathan Rodrigues",
   "Jonathan Rodrigues": "Jonathan Rodrigues",
 
+  // Renato
   "renatoigawa": "Renato Igawa",
   "renatoigawa@gmail.com": "Renato Igawa",
   "Renato": "Renato Igawa",
   "Renato Igawa": "Renato Igawa",
 
-  "ncpf1985": "Nirmen",
-  "Nirmen": "Nirmen",
-  "nirmen": "Nirmen",
+  // Nirmen (Unificando todas as variações para "Nirmen Pinheiro")
+  "ncpf1985": "Nirmen Pinheiro",
+  "Nirmen": "Nirmen Pinheiro",
+  "nirmen": "Nirmen Pinheiro",
+  "Nirmen Pinheiro": "Nirmen Pinheiro",
+  "nirmenpinheiro": "Nirmen Pinheiro",
 
+  // Outros Membros
   "André Vitor SalinasPereira": "André Vitor Salinas Pereira",
-  "Dener Ulian": "Dener Ulian"
+  "André Vitor Salinas Pereira": "André Vitor Salinas Pereira",
+  "Dener Ulian": "Dener Ulian",
+  "Bruno Mendonça": "Bruno Mendonça",
+  "Thales Igawa": "Thales Igawa"
 };
 
 const getNomeJogador = (partida) => {
   const userName = partida.userName ? partida.userName.trim() : "";
   const userEmail = partida.userEmail ? partida.userEmail.trim() : "";
 
+  // 1. Procura no Mapa Fixo pelo userName ou userEmail
   if (userName && MAPA_JOGADORES[userName]) return MAPA_JOGADORES[userName];
   if (userEmail && MAPA_JOGADORES[userEmail]) return MAPA_JOGADORES[userEmail];
-  if (userName !== "" && !userName.includes("@")) return userName;
 
+  // 2. Procura pelo nickname do e-mail (parte antes do @)
   if (userEmail) {
     const nick = userEmail.split('@')[0];
     if (MAPA_JOGADORES[nick]) return MAPA_JOGADORES[nick];
     return nick.charAt(0).toUpperCase() + nick.slice(1);
+  }
+
+  // 3. Se for nome digitado manualmente sem e-mail associado
+  if (userName !== "") {
+    if (MAPA_JOGADORES[userName]) return MAPA_JOGADORES[userName];
+    return userName;
   }
 
   return "Jogador Desconhecido";
